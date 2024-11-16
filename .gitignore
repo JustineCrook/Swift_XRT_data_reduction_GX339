@@ -11,3 +11,6 @@ plots/
 spectra/
 spectral_fit_results/
 spectral_fit_residuals/
+lightcurves/
+spectral_results/
+test_manual_xspec/
