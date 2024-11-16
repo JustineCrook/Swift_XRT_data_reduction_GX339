@@ -1,0 +1,13 @@
+# Ignore specific files
+test.ipynb
+test.sh
+test.sh.sh
+xselect.log
+xspec.log
+
+# Ignore specific directories
+__pycache__/
+plots/
+spectra/
+spectral_fit_results/
+spectral_fit_residuals/
