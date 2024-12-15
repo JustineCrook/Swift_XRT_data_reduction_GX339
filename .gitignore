@@ -4,6 +4,28 @@ test.sh
 test.sh.sh
 xselect.log
 xspec.log
+times.ipynb
+uplims_analysis/bkg.reg
+uplims_analysis/bkg_00016584014.pha
+uplims_analysis/bkg_00016584016.pha
+uplims_analysis/src_00016584014.arf
+uplims_analysis/src_00016584014.pha
+uplims_analysis/src_00016584016.arf
+uplims_analysis/src_00016584016.pha
+uplims_analysis/src_15pix.reg
+uplims_analysis/sw00016584014xpcw3po_cl.evt
+uplims_analysis/sw00016584014xpcw3po_ex.img
+uplims_analysis/sw00016584016xpcw3po_cl.evt
+uplims_analysis/sw00016584016xpcw3po_ex.img
+xsel_ascii_out.xsl
+xsel_display.def
+xsel_files.tmp
+xsel_hist.xsl
+xsel_obscat.tmp
+xsel_obslist.def
+xsel_read_cat.xsl
+xsel_region.xsl
+xsel_session.xsl
 
 # Ignore specific directories
 __pycache__/
@@ -14,3 +36,5 @@ spectral_fit_residuals/
 lightcurves/
 spectral_results/
 test_manual_xspec/
+uplims_analysis/data/
+uplims_analysis/xrtpipeline_output/

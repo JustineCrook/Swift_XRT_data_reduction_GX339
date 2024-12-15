@@ -23,6 +23,11 @@ from astropy.table import Table
 import pandas as pd
 pd.set_option('display.width', 1000)  
 pd.set_option('display.max_columns', None)  
+import warnings
+
+
+## TODO: Clean up plotting functions, and make helper functions -- e.g. maybe with a getdata
+##TODO: Clean up json_to_dataframes and get_nh
 
 
 
@@ -32,7 +37,6 @@ pd.set_option('display.max_columns', None)
 mpl.rcParams.update(mpl.rcParamsDefault)
 mpl.rcParams['font.size'] = 14
 mpl.rcParams['font.family'] = 'serif'
-
 mpl.rcParams['ytick.right'] = True
 mpl.rcParams['ytick.direction'] = 'in'
 mpl.rcParams['ytick.minor.visible'] = True
@@ -41,7 +45,6 @@ mpl.rcParams['ytick.major.width'] = 1.5
 mpl.rcParams['ytick.minor.width'] = 1.5
 mpl.rcParams['ytick.major.size'] = 6.0
 mpl.rcParams['ytick.minor.size'] = 3.0
-
 mpl.rcParams['xtick.top'] = True
 mpl.rcParams['xtick.direction'] = 'in'
 mpl.rcParams['xtick.labelsize'] = 'medium'
@@ -105,34 +108,6 @@ def iso2mjd(iso_dates):
     return times.mjd
 
 
-# Find the index range in dates_MJD for a particular MJD_range, where MJD_range = [start_val, end_val)
-# The output index range is inclusive, i.e. [start_index, end_index]
-def find_index_range(dates_MJD, MJD_range):
-    
-    start_val, end_val = MJD_range
-    length= len(dates_MJD)
-
-    if start_val>end_val:
-        print("Start val must be less than end val")
-        return
-    
-    # Find the start index
-    if start_val == 0:
-        start_index = 0
-    elif start_val == np.inf:
-        start_index = length
-    else:
-        start_index = np.searchsorted(dates_MJD, start_val, side='left')
-    
-    # Find the end index
-    if end_val == np.inf:
-        end_index = length
-    else:
-        end_index = np.searchsorted(dates_MJD, end_val, side='right')
-    
-    return start_index, end_index-1
-
-
 
 # Input: 2D list -- a list of ranges in the form [start_index, end_index], where the indexes are inclusive
 def ranges_okay(ranges):
@@ -161,12 +136,11 @@ def ranges_okay(ranges):
 ##########################################################
 ## LIGHTCURVE PLOTTING FUNCTIONS
 
-##TODO: Scrape website to get obsIDs.
-def get_lightcurve_data():
+
+def get_lightcurve_data(verbose=True):
 
     # Get observation IDs
     obs_ids = glob.glob('./lightcurves/*')
-
 
     ###########################
     ## Get count data
@@ -179,7 +153,6 @@ def get_lightcurve_data():
 
     # Iterate through the files
     for obs_id in obs_ids:
-        print("Observation ID: ", obs_id)
 
         lc_name = f'{obs_id}/curve.qdp'
 
@@ -197,8 +170,7 @@ def get_lightcurve_data():
                 i+=1
             except IndexError:
                 break
-        
-        print("Number of data points: ", len(lc_mjd))
+        if verbose: print(f"For observation ID: {obs_id.split('/')[1]}, there are {len(lc_mjd)} data points.")
 
     # Order light curve arrays
     index = np.argsort(lc_mjd)
@@ -213,16 +185,15 @@ def get_lightcurve_data():
     index_uplims = np.where(lc_cps_nerr == 0.0)
     time_uplims = lc_mjd[index_uplims]
     cps_uplims = lc_cps[index_uplims]
-
     time_uplims_utc = mjd2utc(time_uplims)
 
-    if len(time_uplims)!=0: 
+    if len(time_uplims)!=0 and verbose: 
+        print()
         print("Only upper limits were obtained for some observations:")
         print("MJDs for upper limits: ", time_uplims)
         print("UTC for upper limits: ", time_uplims_utc)
-        print("Get the corresponding obsIDs from the Swift website.")
         print("Count rates [counts/s] for the upper limits: ", cps_uplims)
-        print("Follow the instructions in calculate_uplims.py. You will need to run the get_uplim_fluxes function to get the corresponding fluxes, which can then be input to plot_spectral_results.")
+        print("Get the obsIDs for the upper limits from the following website: https://www.swift.psu.edu/operations/obsSchedule.php")
 
 
     ###########################
@@ -255,7 +226,7 @@ def get_lightcurve_data():
     hr = hr[index]
     hr_err = hr_err[index]
 
-    return lc_mjd, lc_cps, lc_cps_nerr, lc_cps_perr, index_uplims, time_uplims, hr_mjd, hr, hr_err
+    return lc_mjd, lc_cps, lc_cps_nerr, lc_cps_perr, index_uplims, hr_mjd, hr, hr_err
 
 
 
@@ -263,7 +234,7 @@ def plot_lightcurve_and_hr():
     ## Plot the light curves and hardness ratios
 
     # Get the data
-    lc_mjd, lc_cps, lc_cps_nerr, lc_cps_perr, index_uplims, time_uplims, hr_mjd, hr, hr_err = get_lightcurve_data()
+    lc_mjd, lc_cps, lc_cps_nerr, lc_cps_perr, index_uplims, hr_mjd, hr, hr_err = get_lightcurve_data()
 
     # Set up figure
     fig, ax = plt.subplots(2, figsize=(8,8), sharex='col', gridspec_kw={'hspace': 0.1})
@@ -294,10 +265,7 @@ def plot_lightcurve_and_hr():
 
 
 ##########################################################
-## SPECTRAL RESULTS FUNCTIONS
-
-## TODO: Clean up plotting functions, and make helper functions -- e.g. maybe with a getdata
-
+## INITIAL SPECTRAL RESULTS FUNCTIONS
 
 ## Print the spectral fit results (json file) to a txt file in table format.
 def json_to_dataframes():
@@ -311,28 +279,35 @@ def json_to_dataframes():
     dataframes = []
 
     f = open("./spectral_fit_results/fit_outputs.txt", "w")
-    
-    # Loop through each entry in the dictionary
-    for name, entry in zip(data.keys(), data.values()):
-        df = pd.DataFrame(entry)
+
+    # Loop through each entry in the dictionary (i.e. for each model)
+    models = ["powerlaw", "diskbb", "both"]
+    for model_name in models: 
+        df = pd.DataFrame(data[model_name])
         df = df[['obs_isot'] + ['obs_mjds']+ [col for col in df.columns if col != 'obs_isot' and col!='obs_mjds']]
         dataframes.append(df)
-        f.write(name +"\n")
+        f.write(model_name +"\n") # model name
         f.write(df.to_string(index=True))
 
         # Filter the rows where nH is not -1, cstat is False, and redchi2 is between 0.8 and 1.2
-        filtered_df = df[(df['nH'] != -1) & (df['cstat?'] == False) & (df['redchi2/redcstat'] >= 0.8) & (df['redchi2/redcstat'] <= 1.2)]
+        mask = (df['nH'] != -1) & (df['cstat?'] == False) & (df['redchi2/redcstat'] >= 0.8) & (df['redchi2/redcstat'] <= 1.2)
+        filtered_df = df[mask]
         # Calculate the average of the nH column for the filtered rows
         avg_nh = filtered_df['nH'].mean()
         # Write the average to the file
         f.write(f"\nAverage nH: {avg_nh}\n") 
 
         # Do weighted average
-        avg_nh = np.average(filtered_df['nH'], weights = np.amax((filtered_df['nH_neg'], filtered_df['nH_pos']), axis=0) ** -2) # Computes the weighted average of nh, using the inverse square of the maximum uncretainty values as the weights.
-        nh_neg_er = np.sum(filtered_df['nH_neg'] ** (-2)) ** (-0.5)
-        nh_pos_er = np.sum(filtered_df['nH_pos'] ** (-2)) ** (-0.5)
-        # (Note: I could also propagate into this the uncertainty due to the variance of the results)
-        f.write(f"Weighted average nH: {avg_nh} + {nh_pos_er} - {nh_neg_er}\n") 
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try: # will only work if some of the values haven't been fixed
+                avg_nh = np.average(filtered_df['nH'], weights = np.amax((filtered_df['nH_neg'], filtered_df['nH_pos']), axis=0).astype(float) **(-2)) # Computes the weighted average of nh, using the inverse square of the maximum uncretainty values as the weights.
+                nh_neg_er = np.sum(filtered_df['nH_neg'].astype(float) ** (-2)) ** (-0.5)
+                nh_pos_er = np.sum(filtered_df['nH_pos'].astype(float) ** (-2)) ** (-0.5)
+                # (Note: I could also propagate into this the uncertainty due to the variance of the results)
+                f.write(f"Weighted average nH: {avg_nh} + {nh_pos_er} - {nh_neg_er}\n") 
+            except:
+                print("Weighted average not calculated.")
 
         f.write("\n\n")  
 
@@ -340,6 +315,9 @@ def json_to_dataframes():
     # return tuple(dataframes)  
 
 
+## TODO: Possibly use a mask (same as above) for the HR
+## TODO: Remove the cstat fit value plotting
+## TODO: Add different symbol for cstat points.
 def plot_all_spectral_fit_results_helper(model_indexes=[0,1,2]):
 
     mpl.rcParams['xtick.labelbottom'] = False
@@ -392,7 +370,7 @@ def plot_all_spectral_fit_results_helper(model_indexes=[0,1,2]):
         ax[0].errorbar(Time(dates_MJD, format='mjd').datetime, flux, [flux_neg, flux_pos], fmt='o:',color='k', mfc=colours[i])
 
     # HR
-    lc_mjd, lc_cps, lc_cps_nerr, lc_cps_perr, index_uplims, time_uplims, hr_mjd, hr, hr_err = get_lightcurve_data()
+    lc_mjd, lc_cps, lc_cps_nerr, lc_cps_perr, index_uplims, hr_mjd, hr, hr_err = get_lightcurve_data(verbose=False)
     ax[1].errorbar(Time(hr_mjd, format='mjd').datetime, hr, [hr_err, hr_err], fmt='o:', color='k',mfc='black')
 
     # Tin
@@ -423,7 +401,7 @@ def plot_all_spectral_fit_results_helper(model_indexes=[0,1,2]):
     
     str = "_".join(model_names)
     plt.savefig('./spectral_fit_results/all_fits_'+str+'.png')
-    plt.show()
+    #plt.show()
 
 
 def plot_all_spectral_fit_results():
@@ -431,10 +409,97 @@ def plot_all_spectral_fit_results():
     plot_all_spectral_fit_results_helper(model_indexes=[0])
     plot_all_spectral_fit_results_helper(model_indexes=[1])
     plot_all_spectral_fit_results_helper(model_indexes=[2])
+
+
+
+# Find the index range in dates_MJD for a particular MJD_range, where MJD_range = [start_MJD, end_MJD)
+# The output index range is inclusive, i.e. [start_index, end_index]
+def get_index_range(MJD_range):
+
+    ## Load in the files 
+    with open('./spectral_fit_results/xrt_spectral_dict.json', 'r') as j:
+        xrt_fit_dict = json.load(j)
+    dates_MJD = xrt_fit_dict['powerlaw']['obs_mjds'] # all the models have the same MJDs
+    
+    start_val, end_val = MJD_range
+    length= len(dates_MJD)
+
+    if start_val>end_val:
+        print("Start val must be less than end val")
+        return
+    
+    # Find the start index
+    if start_val == 0:
+        start_index = 0
+    elif start_val == np.inf:
+        start_index = length
+    else:
+        start_index = np.searchsorted(dates_MJD, start_val, side='left')
+    
+    # Find the end index
+    if end_val == np.inf:
+        end_index = length
+    else:
+        end_index = np.searchsorted(dates_MJD, end_val, side='right')
+
+    end_index-=1 # to be inclusive
+
+    print("For the MJD range [{start_val}, {end_val}), use the following indexes (starting from 0) for the xrt_spectral_dict: start index (inclusive)= {start_index} and end index (inclusive) = {end_index}.")
+    
     
 
 
+# Once we have an idea which model we would like to use for each observation, we can run this with the models specified
+def get_nh(models_indexes={'powerlaw': [[7, 20]], 'diskbb': [[0, 5]], 'both':[[6, 6]]}):
 
+    # Load JSON data from file
+    json_path = "./spectral_fit_results/xrt_spectral_dict.json"
+    with open(json_path, 'r') as file:
+        data = json.load(file)
+
+    f = open("./spectral_fit_results/nh.txt", "w")
+
+    models = ["powerlaw", "diskbb", "both"]
+    for model_name in models: 
+        df = pd.DataFrame(data[model_name])
+        length = df.shape[0]
+        mask = np.full(length, False)
+        model_range = models_indexes[model_name]
+        for period in model_range:
+            start_index, end_index = period[0], period[1]  
+            end_index = min(end_index, length - 1)  # Ensure end_index doesn't exceed the bounds of the array
+            mask[start_index: end_index+1] = True # Replace the False with True in those positions in mask
+        filtered_df = df[mask]
+        f.write(model_name +"\n") 
+        f.write(filtered_df.to_string(index=True))
+        # Calculate the average of the nH column for the filtered rows
+        avg_nh = filtered_df['nH'].mean()
+        # Write the average to the file
+        f.write(f"\nAverage nH: {avg_nh}\n") 
+
+        # Do weighted average
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try: # will only work if some of the values haven't been fixed
+                avg_nh = np.average(filtered_df['nH'], weights = np.amax((filtered_df['nH_neg'], filtered_df['nH_pos']), axis=0).astype(float) **(-2)) # Computes the weighted average of nh, using the inverse square of the maximum uncretainty values as the weights.
+                nh_neg_er = np.sum(filtered_df['nH_neg'].astype(float) ** (-2)) ** (-0.5)
+                nh_pos_er = np.sum(filtered_df['nH_pos'].astype(float) ** (-2)) ** (-0.5)
+                # (Note: I could also propagate into this the uncertainty due to the variance of the results)
+                f.write(f"Weighted average nH: {avg_nh} + {nh_pos_er} - {nh_neg_er}\n") 
+            except:
+                print("Weighted average not calculated.")
+        f.write("\n\n")  
+
+    f.close()
+
+
+##########################################################
+## FINAL SPECTRAL RESULTS FUNCTIONS
+
+
+## TODO: Possibly use a mask (same as above) for the HR
+## TODO: Remove the cstat plotting
+## TODO: Add different symbol for cstat points.
 def plot_spectral_results(uplims_MJDs=[60444.44583857,60448.53271186], uplims_fluxes=[2.63826081e-12, 2.37226154e-12], models_indexes={'powerlaw': [[7, 20]], 'diskbb': [[0, 5]], 'both':[[6, 6]]}): 
     
     mpl.rcParams['xtick.labelbottom'] = False
@@ -481,7 +546,8 @@ def plot_spectral_results(uplims_MJDs=[60444.44583857,60448.53271186], uplims_fl
         mask = np.full(length, False)
         model_range = models_indexes[model_name]
         for period in model_range:
-            start_index, end_index = period[0], period[1]    
+            start_index, end_index = period[0], period[1]   
+            end_index = min(end_index, length - 1)  # Ensure end_index doesn't exceed the bounds of the array 
             mask[start_index: end_index+1] = True # Replace the False with True in those positions in mask
         masks.append(mask)
 
@@ -501,7 +567,7 @@ def plot_spectral_results(uplims_MJDs=[60444.44583857,60448.53271186], uplims_fl
     ax[0].errorbar(Time(uplims_MJDs, format='mjd').datetime, uplims_fluxes, yerr = 0, fmt='v', color='k', zorder=1000, mec='k', ms = 6, mew=2, mfc='white') 
 
     # HR
-    lc_mjd, lc_cps, lc_cps_nerr, lc_cps_perr, index_uplims, time_uplims, hr_mjd, hr, hr_err = get_lightcurve_data()
+    lc_mjd, lc_cps, lc_cps_nerr, lc_cps_perr, index_uplims, hr_mjd, hr, hr_err = get_lightcurve_data(verbose=False)
     ax[1].errorbar(Time(hr_mjd, format='mjd').datetime, hr, [hr_err, hr_err], fmt='o', color='k',mfc='black')
     
 
@@ -535,15 +601,16 @@ def plot_spectral_results(uplims_MJDs=[60444.44583857,60448.53271186], uplims_fl
         os.makedirs(plots_dir)
         print(f"{plots_dir } has been created.")
     plt.savefig('./plots/flux.png')
-    plt.show()
+    #plt.show()
 
 
 
 # For the ranges [start, end] is inclusive (i.e. includes the start and end index value)
-## TODO: Add functionality to add plot name
-## TODO: Only show chi^2 for chosen ranges
-## TODO: Add HR
-## TODO: I might also want to use different markers for the various models used. In this case, since errrobar only accepts a single symbol, and I want the flux points to be connected, I will have to first plot the line connecting all the points, and then plot the errobars in a loop.
+## TODO: Only show chi^2 for chosen ranges, as above
+## TODO: Add HR, as above
+## TODO: Remove the cstat plotting
+## TODO: Add different symbol for cstat points.
+## TODO: I might also want to use different markers/colours for the various models used. In this case, since errrobar only accepts a single symbol, and I want the flux points to be connected, I will have to first plot the line connecting all the points, and then plot the errobars in a loop.
 def plot_spectral_results_connected_lines(uplims_MJDs=[60444.44583857,60448.53271186], uplims_fluxes=[2.63826081e-12, 2.37226154e-12], models_indexes={'powerlaw': [[7, 20]], 'diskbb': [[0, 5]], 'both':[[6, 6]]}): 
 
     mpl.rcParams['xtick.labelbottom'] = False
@@ -671,7 +738,7 @@ def plot_spectral_results_connected_lines(uplims_MJDs=[60444.44583857,60448.5327
 
 ## TODO
 ## Take in date ranges for the models and then tabulate final results
-def tabulate_final_results():
+def tabulate_final_results(uplims_MJDs, uplims_fluxes, models_indexes):
     print("hello")
 
 

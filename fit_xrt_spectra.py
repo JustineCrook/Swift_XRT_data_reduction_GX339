@@ -19,6 +19,7 @@ def iso2mjd(iso_dates):
 
 
 ## Initialise different spectral models, based on the input model_index.
+##TODO: Normalisation when there is both diskbb and powerlaw
 def initialise_model(mod_index, flux_guess, fix_names, fix_values):
     
     ## Initialise the parameter parameters
@@ -31,15 +32,16 @@ def initialise_model(mod_index, flux_guess, fix_names, fix_values):
     Emin = 1.0
     Emax = 10.0
 
+    # Defaults for starting parameters and ranges
     parameters = {
-        "nh": '0.1989,,0.1,0.1,10,10',  # absorption
+        "nh": '0.2,,0.1,0.1,10,10',  # absorption
         "gamma": '1.7,,0.0,0.0,4.0,4.0',  # spectral index
         "Tin": '1.0,,0.05,0.05,5.0,5.0'  # temperature
     }
     
+    # Set parameters to the specified values
     for name, value in zip(fix_names, fix_values):
         if name in parameters: parameters[name] = f"{value} -1"
-    
     nh = parameters["nh"]
     gamma = parameters["gamma"]
     Tin = parameters["Tin"]
@@ -104,6 +106,9 @@ def initialise_model(mod_index, flux_guess, fix_names, fix_values):
 def plot_resid(spectrum_name, mod_name):
 
     mpl.rcParams['xtick.labelbottom'] = True
+    plots_dir = "./spectral_fit_residuals/"
+    if not os.path.exists(plots_dir):
+        os.makedirs(plots_dir)
 
     Plot('data') # data from most recent Fit that was performed
 
@@ -130,20 +135,18 @@ def plot_resid(spectrum_name, mod_name):
 
     ax[0].set_title("Spectrum: " + spectrum_name + " & model: " + mod_name)
 
-    plots_dir = "./spectral_fit_residuals/"
-    if not os.path.exists(plots_dir):
-        os.makedirs(plots_dir)
-
     plt.savefig('./spectral_fit_residuals/'+ spectrum_name+"_"+mod_name)
 
+    ax[0].set_yscale("log")
+    plt.savefig('./spectral_fit_residuals/'+ spectrum_name+"_"+mod_name+"_log")
 
 
 
+##TODO: Add input for the normalisation of bb to powerlaw
 # The parameter fix specifies which parameters need to be fixed during the fit and for which spectral files
-# fix = {"nh": {"indices": "all", "value": 0.1989}, "gamma": {"indices": [-4, -3, -2, -1], "value": 1.7}, "Tin": {"indices": [-4, -3, -2, -1], "value": 0.5} }
-def run_spectral_fit(fix = {"nh": {"indices": "all", "value": 0.1989}, "gamma": {"indices": [-4, -3, -2, -1], "value": 1.7}, "Tin": {"indices": [-4, -3, -2, -1], "value": 0.5} }):
+def run_spectral_fit(fix={}):
     
-    # Initialise XSpec
+    # Initialise XSPEC
     # Xset: storage class for XSPEC settings
     Xset.abund = "wilm"    # set the abundance table used in the plasma emission and photoelectric absorption models; 'wilm' is an XSPEC built-in abundance table
     Xset.xsect = "vern"    # set the photoelectric absorption cross-sections
