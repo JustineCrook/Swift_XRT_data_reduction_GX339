@@ -27,7 +27,7 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
 
     # Initialise the observation IDS
     obs_ids = ','.join([f'{target_id}{seg:03d}' for seg in segments])
-    print(obs_ids)
+    print("Observation IDs: ", obs_ids)
 
     # Create an XRTProductRequest object
     # silent: whether messages should be printed out to stdout
@@ -39,7 +39,7 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
     # SinceTO: whether all time variables are relative to T0
     # RA and dec: object coordinates in J2000
     # centroid: boolean indicating whether to try centroid in the XRT coordinate frame
-    # useSXPS: boolean indicating whether to use source lists from SXPS where possible
+    # useSXPS: boolean indicating whether to use source lists from SXPS where possible. The 2SXPS catalogue is used to identify sources in the field which should be excluded from the background.
     # poserr: how far from the input position the centroid position can be (arcmin)
     myRequest.setGlobalPars(name=target_name,
                         targ=target_id,
@@ -55,14 +55,13 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
     # ~~~~~~~~ # 
     # This code collects the spectra. 
     # For each obsID, it returns the following files:
-    #- .areas
-    #- pc_pow_fit.fit
-    #- pc.arf
-    #- pc.pi
-    #- pc.rmf
-    #- pcback.pi
-    #- pcsource.pi
-    ## TODO: Can I turn off automatic spectral fitting?
+    #- .areas (extraction areas used)
+    #- _pow_fit.fit OR if I turned off fitting _nofit_fit.fit
+    #- .arf
+    #- .pi
+    #- .rmf
+    #- back.pi
+    #- source.pi
 
     if prod_type == 'spectrum':
 
@@ -75,8 +74,8 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
         myRequest.addSpectrum(whichData = 'user',
                         useObs = obs_ids,
                         hasRedshift = False,
-                        timeslice = 'obsid')
-
+                        timeslice = 'obsid', 
+                        doNotFit=True)
         print(myRequest.getAllPars())
 
 
@@ -87,8 +86,8 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
     
             # Wait until the job is complete
             while not myRequest.complete:
-                print("Products not yet complete. Waiting 10 seconds.")
-                time.sleep(10)
+                #print("Products not yet complete. Waiting 60 seconds.")
+                time.sleep(60)
 
             # Obtain the spectral data in the standard spectra dict.
             outdict = myRequest.retrieveSpectralFits(returnData=True)
@@ -102,7 +101,7 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
         # Or, using outdict above, we could use SaveSpectralData()
 
         observations = [key for key in outdict.keys() if 'Obs' in key]
-        print(observations) # e.g. ['Obs_00016584019']
+        print("Observations: ", observations) # e.g. ['Obs_00016584019']
 
         # Ensure the spectra directory exists
         spectra_dir = "./spectra/"
@@ -111,13 +110,12 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
             print(f"{spectra_dir} has been created.")
 
         # Downloading and de-tarring files
-        # TODO: separate sub-folders for each obs?
         for obs in observations:
             try:
                 pipeline_output = outdict[obs]['DataFile'] # get URL of data file
-                subprocess.run([f'wget -O ./spectra/{obs}.tar.gz {pipeline_output}'], shell=True)
-                subprocess.run([f'tar -xf ./spectra/{obs}.tar.gz -C ./spectra/'], shell=True)
-                subprocess.run([f'rm -rf ./spectra/{obs}.tar.gz'], shell=True)
+                subprocess.run([f'wget -O {spectra_dir}{obs}.tar.gz {pipeline_output}'], shell=True)
+                subprocess.run([f'tar -xf {spectra_dir}{obs}.tar.gz -C {spectra_dir}'], shell=True)
+                subprocess.run([f'rm -rf {spectra_dir}{obs}.tar.gz'], shell=True)
             except:
                 print("Something went wrong with ", obs)
 
@@ -126,8 +124,8 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
     # ~~~~~~~~~~ #
     # Lightcurve #
     # ~~~~~~~~~~ # 
-    ## TODO: Allow Bayesian bins??
-
+    
+    # We are just interested in the returned curve_incbad.qd. Note that curve2_incbad.qd, is the same but with additional information. 
 
     else:
         print("\n Light curve")
@@ -158,7 +156,7 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
                  msg(f'I could not submit error:{myRequest.submitError}')
     
             while not myRequest.complete:
-                time.sleep(10)
+                time.sleep(60)
 
             # Obtain the light curve data in the standard light curve dict.
             # returnData: a bool indicating whether the function should return the data, as well as storing it internally (default: False).
@@ -178,7 +176,7 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
             print(f"{lightcurve_dir} has been created.")
 
         # Check if there is a directory for the target_id
-        lightcurve_target_dir = f'./lightcurves/{target_id}'
+        lightcurve_target_dir = f'{lightcurve_dir}{target_id}'
         if os.path.exists(lightcurve_target_dir):
             shutil.rmtree(lightcurve_target_dir)
             print(f"{lightcurve_target_dir} has been removed.")
@@ -188,21 +186,20 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
         
         # Download the light curve products
         # By default, it downloads the products into tar.gz files
-        ### Might want to add 'LightCurve' argument so that it only downloads the lightcurves??
-        myRequest.downloadProducts(f'./lightcurves/{target_id}')
+        ##TODO Might want to add 'LightCurve' argument so that it only downloads the lightcurves??
+        myRequest.downloadProducts(f'{lightcurve_dir}{target_id}')
 
         # De-tar the files 
-        subprocess.run([f'tar -xf ./lightcurves/{target_id}/lc.tar.gz -C ./lightcurves/{target_id}/'], shell = True)
+        subprocess.run([f'tar -xf {lightcurve_dir}{target_id}/lc.tar.gz -C {lightcurve_dir}{target_id}/'], shell = True)
         # Move files around
-        subprocess.run(f'mv ./lightcurves/{target_id}/USERPROD*/lc/* ./lightcurves/{target_id}/.', shell=True)
+        subprocess.run(f'mv {lightcurve_dir}{target_id}/USERPROD*/lc/* {lightcurve_dir}{target_id}/.', shell=True)
         # Clean up
-        subprocess.run([f'rm -rf ./lightcurves/{target_id}/USERPROD*; rm -rf ./lightcurves/{target_id}/lc.tar.gz'], shell=True) 
+        subprocess.run([f'rm -rf {lightcurve_dir}{target_id}/USERPROD*; rm -rf {lightcurve_dir}{target_id}/lc.tar.gz'], shell=True) 
 
         # Remove nonsense string
         # Finds all .qdp files in the specified directory, and in each file, it removes any text following !:: on every line
-        for qdp_name in glob.glob('./lightcurves/*/*.qdp'):
+        for qdp_name in glob.glob(f'{lightcurve_dir}*/*.qdp'):
             subprocess.run([f"sed -i 's/!::.*//g' {qdp_name}"], shell=True)
-
 
 
 
@@ -212,7 +209,9 @@ def group_spectra():
     # Prepare spectral data for spectral fitting #
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ # 
     # In this section, we reference the source and background spectra, and group the spectral data.  
-    # This grouping is essential, to ensure good statistics.
+    # This grouping is essential, to ensure good statistics for the subsequent spectral fitting.
+
+    # We could use one of the grouping packages (like grppha or ftgrouppha), but here we use the custom grouping code by Sivakoff.
 
     print("-------------------------------------------------------------------------------------------------------")
     print("-------------------------------------------------------------------------------------------------------")
@@ -222,8 +221,8 @@ def group_spectra():
     print("Prepare spectral data")  
     print()
 
-    # Get the current working directory, and replace "code" with "spectra"
-    spectrum_directory = '/mnt/users/crookmansourj/SwiftJ1727_test/spectra'
+    # Get the current working directory
+    spectrum_directory = os.getcwd()+ '/spectra'
 
     ## TODO: Clean the below by just having root part of name and end part
 
@@ -233,26 +232,22 @@ def group_spectra():
     print()
     print()
 
-    # Iterate through spectral files
-    # i.e. for every obsID
+    # Iterate through spectral files, i.e. for every obsID
     for source_spectrum in source_spectra[:]:
         print()
         print("Spectrum: ", source_spectrum)
         print('\n', fits.getheader(source_spectrum)['DATE-OBS'])
 
-        # Define the file names, by replacing certain parts of the source file name for the observation under consideration
+        # Note that the arf and rmf files are returned by the data retrieval
+        # Define file names, by replacing certain parts of the source file name for the observation under consideration
         group_spectrum = source_spectrum.replace('source.pi', 'group.pi')
-        print(group_spectrum)
         final_spectrum = source_spectrum.replace('source.pi', 'final.pi')
-        print(final_spectrum)
         background_spectrum = source_spectrum.replace('source.pi', 'back.pi')
-        print(background_spectrum)
         rmf = source_spectrum.replace('source.pi', '.rmf')
-        print(rmf)
         arf = source_spectrum.replace('source.pi', '.arf')
-        print(arf)
 
-        # Calls grppha to read the source spectrum file ({source_spectrum}) and write to the grouped spectrum file ({group_spectrum}). 
+        # The background, rmf, and arf files need to be set in the header, for later use by XSPEC.
+        # Call grppha to read the source spectrum file ({source_spectrum}) and write to the grouped spectrum file ({group_spectrum}). 
         # The ! prefix tells grppha to overwrite the file if it already exists.
         # comm="...": Specifies a series of grppha commands to be executed sequentially within the grppha session:
         # chkey backfile {background_spectrum}: Sets the background file key to {background_spectrum} in the spectrum header.

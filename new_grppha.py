@@ -3,8 +3,8 @@
 import os, optparse, sys
 import numpy as np
 from astropy.io import fits
-
 np.set_printoptions(threshold=np.inf) 
+
 
 ## Parse the arguments to the python file
 def parse_args( argv):
@@ -128,10 +128,8 @@ def group_pha(opts, pi_data, ebounds):
     grouping            = np.zeros(pi_rows)+1 # to track the grouping; set all to 1 at the start
 
     channels            = ebounds.data.field('CHANNEL')
-    e_min               = ebounds.data.field('E_MIN')*1000
-    # print("Emin shape: ", e_min.shape) # (1024,)
-    e_max               = ebounds.data.field('E_MAX')*1000
-    # print("Emax shape: ", e_max.shape) # (1024,)
+    e_min               = ebounds.data.field('E_MIN')*1000 # shape (1024,)
+    e_max               = ebounds.data.field('E_MAX')*1000 # shape (1024,)
     energy              = np.sqrt(e_min*e_max)
     energy_width        = e_max-e_min # width in energy of each each channel
     min_width_at_energy = np.zeros(pi_rows) + opts.bin_min_energy # set minimum energy change per channel
@@ -145,19 +143,17 @@ def group_pha(opts, pi_data, ebounds):
     last_new_row        = 0
     counts_in_bin       = opts.bin_min_counts
     energy_width_of_bin = np.sum(energy_width) # i.e. total energy of the whole spectrum
+    
+    all_counts=[] # for testing
 
     # AKH added this to find the index that corresponded to counts
     count_index = np.where(np.array(pi_data.columns.names).astype(str) == 'COUNTS')[0][0] # = 1
-
-    ## TODO: For row_counter, can just use enumerate
-
-    all_counts=[]
-
+    
     # For each channel in pi_data:
     for row in (pi_data): # row is type FITS_record
         
-        pi_counts = row[count_index] # This was originally an index of 2 potentially a difference between chandra v. swift
-        all_counts.append(pi_counts)
+        pi_counts = row[count_index] # This was originally an index of 2, potentially a difference between chandra v. swift
+        all_counts.append(pi_counts) # for testing
 
         pi_row = row[0] # This is also just the channels so I'm not sure what the difference is
         matching_index = (np.where(channels==pi_row))[0][0]
@@ -173,7 +169,7 @@ def group_pha(opts, pi_data, ebounds):
                 counts_in_bin         = pi_counts
                 energy_width_of_bin   = energy_width[row_counter]
                 last_new_row          = row_counter
-                grouping[row_counter] =1
+                grouping[row_counter] =1 # indicates end of one group
             # Otherwise, the counts and energy for the current channel are added to the existing group/bin.
             else:
                 counts_in_bin         += pi_counts
@@ -184,16 +180,17 @@ def group_pha(opts, pi_data, ebounds):
     
 
     if counts_in_bin < opts.bin_min_counts:
-        grouping[last_new_row] =-1
+        grouping[last_new_row] =-1 # for last channel
 
-    print()
-    print("ALL COUNTS:")
-    ar = np.array(all_counts)
-    print(ar)
-    print(len(all_counts))
-    print(np.sum(all_counts))
-    indices = np.where(ar == 1)
-    print(indices[0])
+    # Testing:
+    #print()
+    #print("ALL COUNTS:")
+    #ar = np.array(all_counts)
+    #print(ar)
+    #print(len(all_counts))
+    #print(np.sum(all_counts))
+    #indices = np.where(ar == 1)
+    #print(indices[0])
     
     return (quality, grouping, tot_counts)
 
@@ -219,11 +216,10 @@ def fitsio_grppha(opts):
         opts.bin_min_counts = 1 # adjust the bin min counts to 1 (default is 25)
         (quality, grouping, tot_counts) = group_pha(opts, input_fits[1].data, ebounds)
 
-
-    print(f'Final min counts per bin: {opts.bin_min_counts}')
-    
-    print("QUALITY: ", quality)
-    print("GROUPING: ", grouping)
+    # Testing:
+    # print("Output after binning:")    
+    # print("QUALITY: ", quality)
+    # print("GROUPING: ", grouping)
     
     # Create new columns for quality and grouping
     quality = fits.Column(name='QUALITY', format='I', array=quality)
@@ -237,9 +233,8 @@ def fitsio_grppha(opts):
         print('Deleting GROUPING column')
         input_fits[1].columns.del_col('GROUPING')
 
-
     # Make a copy of the input FITS file for the output
-    output_fits = input_fits.copy() # This is a reference not a unique object despite it claiming to be a unique object
+    output_fits = input_fits.copy() # this is a reference, not a unique object, despite it claiming to be a unique object
     # Add the new quality and grouping columns to the first HDU
     output_fits[1] = fits.BinTableHDU.from_columns(input_fits[1].columns + quality + grouping, header=input_fits[1].header)
     # Update the FITS headers with additional information
@@ -252,13 +247,15 @@ def fitsio_grppha(opts):
     input_fits.close()
 
 
-
 def main(argv):
+
     # Parse the arguments
-    parser = parse_args(argv) # initialise the parser.
+    parser = parse_args(argv) # initialise the parser
     (opts, args) = parser.parse_args() # opts: an object that contains the parsed options as attributes; args: a list of positional arguments not associated with options.
+    
     # Check that the inputted arguments are valid
     valid_args_check(opts, parser) 
+    
     # Run wrapper method to group counts and output file
     fitsio_grppha(opts) 
 

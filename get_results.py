@@ -3,7 +3,7 @@ import glob
 import json
 import os
 import numpy as np
-np.set_printoptions(threshold=np.inf)
+np.set_printoptions(threshold=np.inf, precision=16)
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -24,6 +24,8 @@ import pandas as pd
 pd.set_option('display.width', 1000)  
 pd.set_option('display.max_columns', None)  
 import warnings
+mpl.pyplot.close()
+
 
 
 ## TODO: Clean up plotting functions, and make helper functions -- e.g. maybe with a getdata
@@ -68,7 +70,7 @@ def FormatAxis(ax, mjd, dt = 10, interval = 60):
     ax[0].set_xlim(Time(mjd[0] - dt, format='mjd').datetime, Time(mjd[-1] + dt, format='mjd').datetime)
     ax[0].xaxis.set_label_position('top') 
     xformatter = mdates.DateFormatter('%Y-%m-%d')
-    plt.gcf().axes[0].xaxis.set_major_formatter(xformatter)
+    plt.gcf().axes[0].xaxis.set_major_formatter(xformatter) #ax[0].xaxis.set_major_formatter(xformatter)
     ax[0].tick_params(axis='x', which='major',rotation=10,labeltop=True, labelbottom=False)
 
     # Format secondary x-axis
@@ -163,14 +165,16 @@ def get_lightcurve_data(verbose=True):
         while True:
             try:
                 data = Table.read(lc_name, format='ascii.qdp', table_id=i)
-                lc_mjd = np.append(lc_mjd, data['col1'].data)
+                lc_mjd = np.append(lc_mjd, data['col1'].data) # creates a copy of the array, so we need to re-assign it to the original variable
                 lc_cps = np.append(lc_cps, data['col2'].data)
                 lc_cps_nerr = np.append(lc_cps_nerr, abs(data['col2_nerr'].data))
                 lc_cps_perr = np.append(lc_cps_perr, abs(data['col2_perr'].data))
                 i+=1
             except IndexError:
                 break
-        if verbose: print(f"For observation ID: {obs_id.split('/')[1]}, there are {len(lc_mjd)} data points.")
+        
+    if verbose: 
+        print(mjd2utc(lc_mjd))
 
     # Order light curve arrays
     index = np.argsort(lc_mjd)
@@ -233,11 +237,13 @@ def get_lightcurve_data(verbose=True):
 def plot_lightcurve_and_hr():
     ## Plot the light curves and hardness ratios
 
+    mpl.rcParams['xtick.labelbottom'] = False
+
     # Get the data
     lc_mjd, lc_cps, lc_cps_nerr, lc_cps_perr, index_uplims, hr_mjd, hr, hr_err = get_lightcurve_data()
 
     # Set up figure
-    fig, ax = plt.subplots(2, figsize=(8,8), sharex='col', gridspec_kw={'hspace': 0.1})
+    fig, ax = plt.subplots(2, figsize=(8,8),  sharex='col', gridspec_kw={'hspace': 0.1}) 
     fig.set_facecolor('white')
     ax = np.atleast_1d(ax)
 
@@ -252,7 +258,7 @@ def plot_lightcurve_and_hr():
     #hr_err_filtered = np.where(filter_mask, hr_err, np.nan)
     #hr_filtered = np.where(filter_mask, hr, np.nan)
     ax[1].errorbar(Time(hr_mjd[mask], format='mjd').datetime, hr[mask], yerr =hr_err[mask], fmt='o--', color='k')
-    ax[1].set_ylabel('$Swift$-XRT HR \n[4-10 keV]/[2-4 keV]')
+    ax[1].set_ylabel('$Swift$-XRT HR \n[2-10 keV]/[0.5-2 keV]')
     ax[1].set_ylim(-0.2, 0.7)
 
     FormatAxis(ax, lc_mjd, interval = 30) # use helper function defined above
@@ -316,7 +322,6 @@ def json_to_dataframes():
 
 
 ## TODO: Possibly use a mask (same as above) for the HR
-## TODO: Remove the cstat fit value plotting
 ## TODO: Add different symbol for cstat points.
 def plot_all_spectral_fit_results_helper(model_indexes=[0,1,2]):
 
@@ -324,7 +329,7 @@ def plot_all_spectral_fit_results_helper(model_indexes=[0,1,2]):
     
     colours = {0:'blue', 1:'red', 2:'green'}
     all_models = {0: "powerlaw", 1: "diskbb", 2: "both"}
-    model_names = [all_models[index] for index in model_indexes]
+    model_names = [all_models[index] for index in model_indexes] # model_names = np.array(list(all_models.values()))
 
     ## Load in the files 
     with open('./spectral_fit_results/xrt_spectral_dict.json', 'r') as j:
@@ -505,7 +510,7 @@ def plot_spectral_results(uplims_MJDs=[60444.44583857,60448.53271186], uplims_fl
     mpl.rcParams['xtick.labelbottom'] = False
 
     colours = ['blue', 'red', 'green']
-    models = ["powerlaw", "diskbb", "both"]
+    model_names = ["powerlaw", "diskbb", "both"]
 
     if len(uplims_MJDs)!=len(uplims_fluxes):
         print("uplims_MJDs and uplims_fluxes should have the same length.")
@@ -513,6 +518,9 @@ def plot_spectral_results(uplims_MJDs=[60444.44583857,60448.53271186], uplims_fl
 
     # Check that none of the defined state ranges overlap
     ranges_list = [np.array(value) for value_list in models_indexes.values() for value in value_list]
+    # Remove empty arrays
+    ranges_list = [x for x in ranges_list if x.size > 0]
+    #print(ranges_list)
     if not ranges_okay(ranges_list):
         print(f"The  ranges for splitting the observation have overlaps.")
         return
@@ -530,22 +538,16 @@ def plot_spectral_results(uplims_MJDs=[60444.44583857,60448.53271186], uplims_fl
     length = len(dates_MJD)
 
     # Make the plot
-    fig, ax = plt.subplots(5, figsize=(10,11), sharex='col', gridspec_kw={'hspace': 0.1})#, 'height_ratios': [1.0, 0.4, 1.0, 1.0, 0.4,]})
+    fig, ax = plt.subplots(5, figsize=(12,17), sharex='col', gridspec_kw={'hspace': 0.1})#, 'height_ratios': [1.0, 0.4, 1.0, 1.0, 0.4,]})
 
-    # Set plot constraints
-    ax[0].set_yscale('log')
-    ax[0].set_ylabel('Flux [1$-$10 keV]\n(erg s$^{-1}$ cm$^{-1}$)')
-    ax[1].set_ylabel(r'HR $\left(\frac{[0.5-2\,\text{keV}]}{[2-10\,\text{keV}]}\right)$')
-    ax[2].set_ylabel(r'$k_B T_\text{in}$ (keV)')
-    ax[3].set_ylabel('$\Gamma$')
-    ax[4].set_ylabel(r'$\chi^2_\text{red}$/Cstat$_\text{red}$')
-    ax[4].set_yscale('log')
 
     masks = []
-    for model_name in models: 
+    for model_name in model_names: 
         mask = np.full(length, False)
         model_range = models_indexes[model_name]
         for period in model_range:
+            #print(period)
+            if period==[]: continue
             start_index, end_index = period[0], period[1]   
             end_index = min(end_index, length - 1)  # Ensure end_index doesn't exceed the bounds of the array 
             mask[start_index: end_index+1] = True # Replace the False with True in those positions in mask
@@ -563,8 +565,9 @@ def plot_spectral_results(uplims_MJDs=[60444.44583857,60448.53271186], uplims_fl
         elif model_name == "both": flux, flux_neg, flux_pos = 1e-12*data['norm'][mask] + 10**data['lg10Flux'][mask], np.sqrt ( (1e-12*data['norm_neg'][mask])**2 + (10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask])**2 ) , np.sqrt( (1e-12*data['norm_pos'][mask])**2 + (10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask])**2 )
         ax[0].errorbar(Time(dates_MJD, format='mjd').datetime, flux, [flux_neg, flux_pos], fmt='o',color='k', mfc=colours[i])
 
+
     # Add uplims
-    ax[0].errorbar(Time(uplims_MJDs, format='mjd').datetime, uplims_fluxes, yerr = 0, fmt='v', color='k', zorder=1000, mec='k', ms = 6, mew=2, mfc='white') 
+    ax[0].errorbar(Time(uplims_MJDs, format='mjd').datetime, uplims_fluxes, yerr = 0, fmt='v', color='k',  mec='k', ms = 6, mew=2, mfc='white') # zorder=1000,
 
     # HR
     lc_mjd, lc_cps, lc_cps_nerr, lc_cps_perr, index_uplims, hr_mjd, hr, hr_err = get_lightcurve_data(verbose=False)
@@ -573,14 +576,14 @@ def plot_spectral_results(uplims_MJDs=[60444.44583857,60448.53271186], uplims_fl
 
     # Tin
     for i in [1,2]: # disbb and both
-        model_name, mask = models[i], masks[i]
+        model_name, mask = model_names[i], masks[i]
         data = xrt_fit_dict[model_name]
         dates_MJD, Tin, Tin_neg, Tin_pos = all_dates_MJD[mask], data['Tin'][mask], data['Tin_neg'][mask], data['Tin_pos'][mask]
         ax[2].errorbar(Time(dates_MJD, format='mjd').datetime, Tin, [Tin_neg, Tin_pos], fmt='o',color='k', mfc=colours[i])
 
     # Gamma
     for i in [0,2]: # powerlaw and both
-        model_name, mask = models[i], masks[i]
+        model_name, mask = model_names[i], masks[i]
         data = xrt_fit_dict[model_name]
         dates_MJD, gamma, gamma_neg, gamma_pos = all_dates_MJD[mask], data['PhoIndex'][mask], data['PhoIndex_neg'][mask], data['PhoIndex_pos'][mask]
         ax[3].errorbar(Time(dates_MJD, format='mjd').datetime, gamma, [gamma_neg, gamma_pos], fmt='o', color='k', mfc=colours[i])
@@ -588,14 +591,25 @@ def plot_spectral_results(uplims_MJDs=[60444.44583857,60448.53271186], uplims_fl
     # Chi^2
     for i, model_name in enumerate(['powerlaw', 'diskbb', 'both']):
         mask = masks[i]
+        mask_no_cstat = xrt_fit_dict[model_name]['cstat?'] == False
+        mask = mask & mask_no_cstat
         chi = xrt_fit_dict[model_name]['redchi2/redcstat'][mask]
         dates_MJD = all_dates_MJD[mask]
         ax[4].errorbar(Time(dates_MJD, format='mjd').datetime, chi, 0.0, fmt='o', color='k', mfc=colours[i], label=model_name)
-
+    
+    # Set plot constraints
+    ax[0].set_ylabel('Flux [1$-$10 keV]\n(erg s$^{-1}$ cm$^{-1}$)')
+    ax[0].set_yscale('log')
+    ax[1].set_ylabel(r'HR $\left(\frac{[0.5-2\,\text{keV}]}{[2-10\,\text{keV}]}\right)$')
+    ax[2].set_ylabel(r'$k_B T_\text{in}$ (keV)')
+    ax[3].set_ylabel('$\Gamma$')
+    ax[4].set_ylabel(r'$\chi^2_\text{red}$/Cstat$_\text{red}$')
+    ax[4].set_yscale('log')
+    ax[4].legend(fontsize=11)
+    
     FormatAxis(ax, all_dates_MJD, interval = 30) # use helper function defined above
 
-    ax[4].legend(fontsize=11)
-
+    
     plots_dir = "./plots/"
     if not os.path.exists(plots_dir):
         os.makedirs(plots_dir)
@@ -739,6 +753,6 @@ def plot_spectral_results_connected_lines(uplims_MJDs=[60444.44583857,60448.5327
 ## TODO
 ## Take in date ranges for the models and then tabulate final results
 def tabulate_final_results(uplims_MJDs, uplims_fluxes, models_indexes):
-    print("hello")
+    print("TODO: tabulate final results")
 
 

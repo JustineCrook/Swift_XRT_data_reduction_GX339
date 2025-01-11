@@ -17,7 +17,10 @@ We therefore cannot use spectral fitting to obtain the flux, so we need to rely 
 
 
 ##TODO: Changing model/parameters for this fit
-##TODO: Dealing with if it's wt instead of pc
+##TODO: Functionality for when it is in the soft state, and the diskbb is therefore what needs to be used.
+
+
+# Note: The upper limits will always be when the mode is PC (instead of WC), as this is the mode that is used when the lowest count rates are observed.
 
 ##########################################################################################################################################################################################################################
 
@@ -310,25 +313,28 @@ def get_uplim_fluxes(n_src= [2, 4], n_bkg=[29, 64], backscal_src=[8e-5,8e-5], ba
 ##########################################################################################################################################################################################################################
 
 
-##TODO: Try put .sh file into this python file?
-def uplims_runner(obs_id_ar, count_rate_ar, target_coords, nH):
+##TODO: Try put xrtpipeline_runner.sh file into this python file?
+# I can set get_data=False, when I am re-running this and the data has already been loaded
+def uplims_runner(obs_id_ar, count_rate_ar, target_coords, nH, get_data=True):
 
     ra, dec = str(target_coords[0]), str(target_coords[1])
 
-    sh_file = "xrtpipeline_runner.sh"
-    if not os.path.exists("./uplims_analysis"): os.makedirs("./uplims_analysis")
-    if not os.path.exists("./uplims_analysis/data"): os.makedirs("./uplims_analysis/data")
-    if not os.path.exists("./uplims_analysis/xrtpipeline_output"): os.makedirs("./uplims_analysis/xrtpipeline_output")
-    
-    ## Get the raw event files for the observations of interest: https://www.swift.ac.uk/swift_portal/. To do this, use the wget option in the /data sub-folder.
-    ## Then, in /uplims_analysis, run xrtpipeline for the observations of interest.
-    ## Copy the required data to /uplims_analysis -- the event files and exposure files.
-    try: # Run the shell script with RA, DEC, and obs_id_ar as arguments
-        print("Running bash script...")
-        result = subprocess.run(['bash', sh_file, ra, dec] + obs_id_ar, check=True, text=True, capture_output=True)
-        #print("Output:\n", result.stdout)
-    except subprocess.CalledProcessError as e:
-        print("Error:\n", e.stderr)
+    if get_data:
+
+        sh_file = "xrtpipeline_runner.sh"
+        if not os.path.exists("./uplims_analysis"): os.makedirs("./uplims_analysis")
+        if not os.path.exists("./uplims_analysis/data"): os.makedirs("./uplims_analysis/data")
+        if not os.path.exists("./uplims_analysis/xrtpipeline_output"): os.makedirs("./uplims_analysis/xrtpipeline_output")
+        
+        ## Get the raw event files for the observations of interest: https://www.swift.ac.uk/swift_portal/. To do this, use the wget option in the /data sub-folder.
+        ## Then, in /uplims_analysis, run xrtpipeline for the observations of interest.
+        ## Copy the required data to /uplims_analysis -- the event files and exposure files.
+        try: # Run the shell script with RA, DEC, and obs_id_ar as arguments
+            print("Running bash script...")
+            result = subprocess.run(['bash', sh_file, ra, dec] + obs_id_ar, check=True, text=True, capture_output=True)
+            #print("Output:\n", result.stdout)
+        except subprocess.CalledProcessError as e:
+            print("Error:\n", e.stderr)
   
     ## Get the values needed to calculate the 3-sigma flux upper limits, using the event and exposure files
     print("Getting values...")

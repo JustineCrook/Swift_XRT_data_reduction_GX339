@@ -33,6 +33,8 @@ def initialise_model(mod_index, flux_guess, fix_names, fix_values):
     Emax = 10.0
 
     # Defaults for starting parameters and ranges
+    # Note: These bounds are very wide; e.g., Gamma 0 to 4, whereas the BH LMXBs are almost always 1-3. 
+    # So if it gets pegged at the bounds, it either means; (i) the spectrum is insensitive to the pegged model, and thus it might not be necessary; (ii) we are stuck in a local minimum and may require more hands-on spectral fitting.
     parameters = {
         "nh": '0.2,,0.1,0.1,10,10',  # absorption
         "gamma": '1.7,,0.0,0.0,4.0,4.0',  # spectral index
@@ -52,6 +54,10 @@ def initialise_model(mod_index, flux_guess, fix_names, fix_values):
     # pgpwrlw (see XSPEC manual pg. 297): Power law with pegged normalisation. A(E) = K E^{-alpha}
     # cflux (see XSPEC manual pp. 359-360): A convolution model to calculate the flux of other model components.
     # diskbb (see XSPEC manual pg. 249): Multiple blackbody accretion disk model.
+
+    # Note: The model-fitting for the more complex models is more complicated, and hands-on fitting would be preferred here. 
+    # Since we are only interested in the flux (not a detailed fit), the simpler models are likely appropriate, at the cost of chi-squared.
+    # In some cases, emission/absorption lines are visible, and we may also need a more manual fit. 
 
     ## Absorbed power law with pegged normalisation
     # par1: nH; equivalent hydrogen column, in units of 10^{22} atoms/cm^2 
@@ -157,7 +163,7 @@ def run_spectral_fit(fix={}):
 
     # Fit: manager class for setting properties and running a fit
     Fit.query = "yes"      # when nIterations is reached, continue the fit without stopping to query
-    Fit.nIterations = 100  # fit iterations for each attemp
+    Fit.nIterations = 100  # fit iterations for each attempt
     Fit.statTest = "chi"
 
     # Plot: manager class for performing XSPEC plots
@@ -271,9 +277,11 @@ def run_spectral_fit(fix={}):
                 # Store the fit statistics
                 xrt_dict[mod_name]['chi2/cstat'].append(Fit.testStatistic) # test statistic value from the most recent fit
                 xrt_dict[mod_name]['dof'].append(Fit.dof) # the degrees of freedom from the fit
-                xrt_dict[mod_name]['redchi2/redcstat'].append(Fit.testStatistic/Fit.dof)
+                try: xrt_dict[mod_name]['redchi2/redcstat'].append(Fit.testStatistic/Fit.dof)
+                except: xrt_dict[mod_name]['redchi2/redcstat'].append(-1) # dof is 0
             
-            except: # fit performing failed
+            except: # Fit performing failed
+                print("Fit failed.")
                 xrt_dict[mod_name]['chi2/cstat'].append(-1) # test statistic value from the most recent fit
                 xrt_dict[mod_name]['dof'].append(-1) # the degrees of freedom from the fit
                 xrt_dict[mod_name]['redchi2/redcstat'].append(-1)
@@ -281,9 +289,10 @@ def run_spectral_fit(fix={}):
 
             try:
                 # Determine the confidence intervals of a fit (FitManager), i.e. get the parameter errors
-                # Estimate the 90% confidence ranges for all parameters
+                # Note, the default is to estimate the 90% confidence ranges for all parameters
+                # The maximum keyword ensures that error will not be run if the reduced chi-squared of the best fit exceeds <redchi>. The default value for <redchi> is 2.0. We set it a bit higher.
                 n_params = mod_obj.nParameters
-                Fit.error(f'1-{n_params}')
+                Fit.error(f'maximum 3.1 1-{n_params}')
                 print("Fit succeeded.")
 
                 for comp_name in mod_obj.componentNames: # Iterate through components
@@ -301,7 +310,7 @@ def run_spectral_fit(fix={}):
                                 xrt_dict[mod_name].setdefault(par_name + '_pos', []).append(pos_er) 
             
             except: # fit failed
-                print("Fit failed.")
+                print("Fit error calculation failed.")
                 for comp_name in mod_obj.componentNames:
                     comp = getattr(mod_obj, comp_name)
                     for par_name in comp.parameterNames:

@@ -26,6 +26,7 @@ xsel_obslist.def
 xsel_read_cat.xsl
 xsel_region.xsl
 xsel_session.xsl
+test.sh*.out
 
 # Ignore specific directories
 __pycache__/
@@ -38,3 +39,5 @@ spectral_results/
 test_manual_xspec/
 uplims_analysis/data/
 uplims_analysis/xrtpipeline_output/
+uplims_analysis_old/
+spectra_TEST/
