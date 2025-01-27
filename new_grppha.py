@@ -233,6 +233,7 @@ def fitsio_grppha(opts):
         print('Deleting GROUPING column')
         input_fits[1].columns.del_col('GROUPING')
 
+    ##TODO: No need to re-assign backfile and ancrfile, since already there?
     # Make a copy of the input FITS file for the output
     output_fits = input_fits.copy() # this is a reference, not a unique object, despite it claiming to be a unique object
     # Add the new quality and grouping columns to the first HDU
@@ -241,6 +242,10 @@ def fitsio_grppha(opts):
     output_fits[1].header['BACKFILE'] = opts.background
     output_fits[1].header['ANCRFILE'] = opts.arf
     output_fits[1].header['COUNTGRP'] = opts.bin_min_counts
+    # print("Testing:",  output_fits[1].header['RESPFILE']) # the respfile is already saved in the header
+
+    output_fits[1].header['COUNTS'] = tot_counts
+    
     # Write the modified FITS file
     output_fits.writeto(opts.output_pi, overwrite=True)
     output_fits.close()

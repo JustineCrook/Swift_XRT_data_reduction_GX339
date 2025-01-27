@@ -3,7 +3,7 @@ import glob
 import json
 import os
 import numpy as np
-np.set_printoptions(threshold=np.inf, precision=16)
+np.set_printoptions(threshold=np.inf, precision=16, linewidth=100)
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -18,6 +18,7 @@ import scipy.special
 #from scipy.special import iv
 from astropy.constants import c
 from astropy.table import Table
+from astropy.io import fits
 #from PyDynamic import interp1d_unc
 #rom scipy.interpolate import interp1d
 import pandas as pd
@@ -27,13 +28,7 @@ import warnings
 mpl.pyplot.close()
 
 
-
-## TODO: Clean up plotting functions, and make helper functions -- e.g. maybe with a getdata
-##TODO: Clean up json_to_dataframes and get_nh
-
-
-
-##########################################################
+####################################################################################################################
 ## Matplotlib formatting 
 
 mpl.rcParams.update(mpl.rcParamsDefault)
@@ -58,8 +53,7 @@ mpl.rcParams['xtick.minor.size'] = 3.0
 mpl.rcParams['axes.linewidth'] = 1.5
 
 
-
-##########################################################
+####################################################################################################################
 ## Helper functions
 
 def FormatAxis(ax, mjd, dt = 10, interval = 60):
@@ -109,8 +103,6 @@ def iso2mjd(iso_dates):
     times = Time(iso_dates, format='isot', scale='utc')
     return times.mjd
 
-
-
 # Input: 2D list -- a list of ranges in the form [start_index, end_index], where the indexes are inclusive
 def ranges_okay(ranges):
 
@@ -133,70 +125,86 @@ def ranges_okay(ranges):
     return True  # No overlaps and all ranges are valid
 
 
-
-
-##########################################################
+####################################################################################################################
 ## LIGHTCURVE PLOTTING FUNCTIONS
 
 
 def get_lightcurve_data(verbose=True):
 
     # Get observation IDs
-    obs_ids = glob.glob('./lightcurves/*')
+    obs_ids = glob.glob('./lightcurves/*') # overall obsID (not the segments)
+
 
     ###########################
-    ## Get count data
+    ## Get count rate data
+
+    ##TODO: Clean up numpy array vs list
 
     # Initialise arrays
     lc_mjd      = np.array([]) # date
-    lc_cps      = np.array([]) # counts
-    lc_cps_nerr = np.array([]) # counts lower error
-    lc_cps_perr = np.array([]) # counts upper error
+    lc_mjd_exp  = np.array([]) # approximate exposure time
+    lc_cps      = np.array([]) # count rate
+    lc_cps_nerr = np.array([]) # count rate lower error
+    lc_cps_perr = np.array([]) # count rate upper error
+    obs_type = []
 
     # Iterate through the files
     for obs_id in obs_ids:
 
         lc_name = f'{obs_id}/curve.qdp'
-
-        if os.path.exists(f'{obs_id}/curve_incbad.qdp'):
+        if os.path.exists(f'{obs_id}/curve_incbad.qdp'): # incbad includes data where centroiding could not be done
             lc_name = f'{obs_id}/curve_incbad.qdp'
 
+        headers = []
+        with open(lc_name, 'r') as f:
+            for line in f: 
+                if line.startswith('! '): headers.append(line[1:].strip()) 
+
+        # Data is stored in different table_id values in the .qdp table, so iterate through this
         i = 0
         while True:
-            try:
+            try: 
                 data = Table.read(lc_name, format='ascii.qdp', table_id=i)
                 lc_mjd = np.append(lc_mjd, data['col1'].data) # creates a copy of the array, so we need to re-assign it to the original variable
+                lc_mjd_exp = np.append(lc_mjd_exp, abs(data['col1_perr'].data) + abs(data['col1_nerr'].data))
                 lc_cps = np.append(lc_cps, data['col2'].data)
                 lc_cps_nerr = np.append(lc_cps_nerr, abs(data['col2_nerr'].data))
                 lc_cps_perr = np.append(lc_cps_perr, abs(data['col2_perr'].data))
+                obs_type.extend([headers[i]] * len(data))
                 i+=1
             except IndexError:
                 break
         
-    if verbose: 
-        print(mjd2utc(lc_mjd))
+    #if verbose: 
+    #    print("MJDs: ", mjd2utc(lc_mjd))
 
-    # Order light curve arrays
+    # Order light curve arrays in time
     index = np.argsort(lc_mjd)
     lc_mjd = lc_mjd[index]
     lc_cps = lc_cps[index]
     lc_cps_nerr = lc_cps_nerr[index]
     lc_cps_perr = lc_cps_perr[index]
-
+    lc_mjd_exp = lc_mjd_exp[index]
+    obs_type = np.array(obs_type)[index]
 
     ## Find upper limits
-    # These are the indexes where the count error is zero.
+    # These are located at the indexes where the count error is zero
     index_uplims = np.where(lc_cps_nerr == 0.0)
     time_uplims = lc_mjd[index_uplims]
-    cps_uplims = lc_cps[index_uplims]
     time_uplims_utc = mjd2utc(time_uplims)
-
+    exp_uplims = lc_mjd_exp[index_uplims]
+    cps_uplims = lc_cps[index_uplims]
+    obs_type_uplims = obs_type[index_uplims]
+    
+    ##TODO: Nicer formatting
     if len(time_uplims)!=0 and verbose: 
         print()
         print("Only upper limits were obtained for some observations:")
-        print("MJDs for upper limits: ", time_uplims)
-        print("UTC for upper limits: ", time_uplims_utc)
-        print("Count rates [counts/s] for the upper limits: ", cps_uplims)
+        print("MJDs for upper limits: \n" +  np.array2string(time_uplims, separator=","))
+        print("UTC for upper limits: \n" + np.array2string(time_uplims_utc, separator=","))
+        print("Exposure [MJD] for upper limits \n" +  np.array2string(exp_uplims, separator=","))
+        print("Observation type for the upper limits: \n" + np.array2string(obs_type_uplims, separator=","))
+        print("Count rates [counts/s] for the upper limits: \n" + np.array2string(cps_uplims, separator=","))
         print("Get the obsIDs for the upper limits from the following website: https://www.swift.psu.edu/operations/obsSchedule.php")
 
 
@@ -220,11 +228,11 @@ def get_lightcurve_data(verbose=True):
                 hr_mjd = np.append(hr_mjd, data['col1'].data)
                 hr = np.append(hr, data['col2'].data)
                 hr_err= np.append(hr_err, abs(data['col2_err'].data))
-                i+=3
+                i+=3 # every third table
             except IndexError:
                 break
 
-    # Order HR arrays
+    # Order HR arrays in time
     index = np.argsort(hr_mjd)
     hr_mjd = hr_mjd[index]
     hr = hr[index]
@@ -243,108 +251,306 @@ def plot_lightcurve_and_hr():
     lc_mjd, lc_cps, lc_cps_nerr, lc_cps_perr, index_uplims, hr_mjd, hr, hr_err = get_lightcurve_data()
 
     # Set up figure
-    fig, ax = plt.subplots(2, figsize=(8,8),  sharex='col', gridspec_kw={'hspace': 0.1}) 
+    fig, ax = plt.subplots(2, figsize=(15,8),  sharex='col', gridspec_kw={'hspace': 0.1}) 
     fig.set_facecolor('white')
     ax = np.atleast_1d(ax)
 
     # Light curve
-    ax[0].errorbar(Time(lc_mjd, format='mjd').datetime, lc_cps, yerr = [lc_cps_nerr, lc_cps_perr], fmt='o--', color='k') # data points
-    ax[0].errorbar(Time(lc_mjd[index_uplims], format='mjd').datetime, lc_cps[index_uplims ], yerr = 0, fmt='v', color='k', zorder=1000, mec='k', ms = 10, mew=2, mfc='white') # upper limits
+    # Data points:
+    ax[0].errorbar(Time(lc_mjd, format='mjd').datetime, lc_cps, yerr = [lc_cps_nerr, lc_cps_perr], fmt='o--', color='k') 
+    # Upper limits:
+    ax[0].errorbar(Time(lc_mjd[index_uplims], format='mjd').datetime, lc_cps[index_uplims ], yerr = 0, fmt='v', color='k', zorder=1000, mec='k', ms = 10, mew=2, mfc='white') 
     ax[0].set_ylabel('$Swift$-XRT Count Rate\n(count s$^{-1}$)')
     ax[0].set_yscale('log')
 
     # Hardness ratio
+    # Filter the array to only include values where the error is low
     mask= hr_err <= 0.05
-    #hr_err_filtered = np.where(filter_mask, hr_err, np.nan)
-    #hr_filtered = np.where(filter_mask, hr, np.nan)
     ax[1].errorbar(Time(hr_mjd[mask], format='mjd').datetime, hr[mask], yerr =hr_err[mask], fmt='o--', color='k')
     ax[1].set_ylabel('$Swift$-XRT HR \n[2-10 keV]/[0.5-2 keV]')
     ax[1].set_ylim(-0.2, 0.7)
 
-    FormatAxis(ax, lc_mjd, interval = 30) # use helper function defined above
+    T = np.max(lc_mjd) - np.min(lc_mjd)
+    dt = int(T/4)
 
-    plots_dir = "./plots/"
+    FormatAxis(ax, lc_mjd, interval = dt) # use helper function defined above
+
+    # Save the figure
+    plots_dir = "./lightcurve_results/"
     if not os.path.exists(plots_dir):
         os.makedirs(plots_dir)
         print(f"{plots_dir } has been created.")
-    plt.savefig('./plots/lightcurve_and_hr.png', bbox_inches="tight")
+    plt.savefig(plots_dir+'lightcurve_and_hr.png', bbox_inches="tight")
 
 
-##########################################################
-## INITIAL SPECTRAL RESULTS FUNCTIONS
+####################################################################################################################
+## SPECTRAL RESULTS FUNCTIONS
+
+def plot_parameter(t, param_values, param_name, avg, weighted_avg, mod_name):
+
+    # parameter as a function of time
+    plt.figure(figsize=(20, 10))
+    plt.scatter(t, param_values, s = 3, color="blue")
+    plt.ylabel(param_name)
+    plt.xlabel("MJD")
+    plt.axhline(avg, color='red', linestyle='--', linewidth=1.5, label=f'Mean = {avg:.4f}')
+    if weighted_avg!=None: plt.axhline(weighted_avg, color='green', linestyle='--', linewidth=1.5, label=f'Weighted mean = {weighted_avg:.4f}')
+    plt.legend()
+    plt.savefig(f"./spectral_fit_results/{param_name}_time_series_{mod_name}.png")
+
+    # parameter distribution
+    plt.figure(figsize=(12, 10))
+    plt.hist(param_values, bins=30, color='blue', alpha=0.7, edgecolor='black')
+    plt.axvline(avg, color='red', linestyle='dotted', linewidth=2, label=f'Mean = {avg:.4f}')
+    if weighted_avg!=None: plt.axvline(weighted_avg, color='green', linestyle='--', linewidth=1.5, label=f'Weighted mean = {weighted_avg:.4f}')
+    plt.xlabel(param_name)
+    plt.ylabel('Frequency')
+    plt.legend()
+    plt.savefig(f"./spectral_fit_results/{param_name}_distribution_{mod_name}.png")
+
 
 ## Print the spectral fit results (json file) to a txt file in table format.
-def json_to_dataframes():
+# Once we have an idea which model we would like to use for each observation, we can run this with the models specified
+# The model_indexes are an inclusive range and correspond the time-ordered spectra that are fit
+def get_results(models, models_indexes=[], count_threshold = 50, fixing=False):
+
+    if any(model not in ['powerlaw', 'pegged_powerlaw', 'diskbb', 'powerlaw+diskbb', 'pegged_powerlaw+diskbb'] for model in models):
+        raise ValueError(f"Error: Invalid model(s) found in array. Allowed values are: {['powerlaw', 'pegged_powerlaw', 'diskbb', 'powerlaw+diskbb', 'pegged_powerlaw+diskbb']}")
 
     # Load JSON data from file
-    json_path = "./spectral_fit_results/xrt_spectral_dict.json"
+    filename = './spectral_fit_results'
+    if fixing: filename+='_fixing'
+    filename+='/'
+    json_path = filename+"xrt_spectral_dict.json"
     with open(json_path, 'r') as file:
         data = json.load(file)
-    
+
+    # Output text file
+    f = open(filename+"fit_outputs.txt", "w")
+
     # Initialise an empty list to store DataFrames
     dataframes = []
 
-    f = open("./spectral_fit_results/fit_outputs.txt", "w")
-
     # Loop through each entry in the dictionary (i.e. for each model)
-    models = ["powerlaw", "diskbb", "both"]
-    for model_name in models: 
+    for i, model_name in enumerate(models): 
+
         df = pd.DataFrame(data[model_name])
         df = df[['obs_isot'] + ['obs_mjds']+ [col for col in df.columns if col != 'obs_isot' and col!='obs_mjds']]
         dataframes.append(df)
+
+        if i==0: # i.e. first model, print the low-count spectra
+            counts = df['counts'].to_numpy()
+            mask = counts < count_threshold
+            obs = df['IDs'].to_numpy()[mask]
+            indexes = np.where(mask)[0] 
+            f.write("For the following observations, the fitting parameters should be fixed, due to low number of counts: \n")
+            f.write("IDs: " + np.array2string(obs, separator=",") +"\n")
+            f.write("Indexes: " + np.array2string(indexes, separator=",") + "\n")
+            f.write("\n\n\n")
+
+        f.write("All results: \n")
         f.write(model_name +"\n") # model name
         f.write(df.to_string(index=True))
+        f.write("\n")
 
-        # Filter the rows where nH is not -1, cstat is False, and redchi2 is between 0.8 and 1.2
-        mask = (df['nH'] != -1) & (df['cstat?'] == False) & (df['redchi2/redcstat'] >= 0.8) & (df['redchi2/redcstat'] <= 1.2)
+        # Mask when index ranges are specified
+        length = len(df['obs_mjds'])
+        try: 
+            model_range = models_indexes[i]
+            mask_filter = np.full(length, False)
+            for period in model_range:
+                if period==[]: continue
+                start_index, end_index = period[0], period[1]   
+                end_index = min(end_index, length - 1)  # Ensure end_index doesn't exceed the bounds of the array 
+                mask_filter[start_index: end_index+1] = True # Replace the False with True in those positions in mask
+        except: # there are no model_indexes specified
+            mask_filter = np.full(length, True)
+        
+        ## Calculate the average fit parameters -- nH / gamma / Tin
+        # To do this, filter the rows where nH is not -1 (i.e. fit was successful), cstat is False (i.e. >=300 counts), and redchi2 is between 0.8 and 1.2
+        # In other words, we only use high-quality fits when determining the average of these parameters
+        mask_valid = (df['nH'] != -1) & (df['cstat?'] == False) & (df['redchi2'] >= 0.8) & (df['redchi2'] <= 1.2) 
+        
+        ## Filter the dataframe
+        mask = mask_filter & mask_valid
         filtered_df = df[mask]
-        # Calculate the average of the nH column for the filtered rows
-        avg_nh = filtered_df['nH'].mean()
-        # Write the average to the file
-        f.write(f"\nAverage nH: {avg_nh}\n") 
+        t = filtered_df['obs_mjds'].to_numpy()
+        parameters = ['nH'] + [col for col in ['PhoIndex', 'Tin'] if col in filtered_df.columns]
 
-        # Do weighted average
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            try: # will only work if some of the values haven't been fixed
-                avg_nh = np.average(filtered_df['nH'], weights = np.amax((filtered_df['nH_neg'], filtered_df['nH_pos']), axis=0).astype(float) **(-2)) # Computes the weighted average of nh, using the inverse square of the maximum uncretainty values as the weights.
-                nh_neg_er = np.sum(filtered_df['nH_neg'].astype(float) ** (-2)) ** (-0.5)
-                nh_pos_er = np.sum(filtered_df['nH_pos'].astype(float) ** (-2)) ** (-0.5)
-                # (Note: I could also propagate into this the uncertainty due to the variance of the results)
-                f.write(f"Weighted average nH: {avg_nh} + {nh_pos_er} - {nh_neg_er}\n") 
-            except:
-                print("Weighted average not calculated.")
+        true_indexes = np.where(mask)[0]
+        f.write("Indexes used for calculating parameters: \n" + np.array2string(true_indexes, separator=",") + "\n")
 
+        
+        ##TODO: Only average when the parameter was not fixed?
+        for parameter in parameters:
+            
+            # Calculate the average of the column for the filtered rows
+            values = filtered_df[parameter].to_numpy()
+            avg = values.mean()
+            f.write(f"Average {parameter}: {avg}\n") 
+
+            # Do weighted average
+            weighted_avg = None
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                try: # will only work if some of the paramert values haven't been fixed
+                    weighted_avg = np.average(filtered_df[parameter], weights = np.amax((filtered_df[f'{parameter}_neg'], filtered_df[f'{parameter}_pos']), axis=0).astype(float) **(-2)) # Computes the weighted average of nh, using the inverse square of the maximum uncretainty values as the weights
+                    neg_er = np.sum(filtered_df[f'{parameter}_neg'].astype(float) ** (-2)) ** (-0.5)
+                    pos_er = np.sum(filtered_df[f'{parameter}_pos'].astype(float) ** (-2)) ** (-0.5)
+                    # (Note: I could also propagate into this the uncertainty due to the variance of the results)
+                    f.write(f"Weighted average {parameter}: {weighted_avg} + {pos_er} - {neg_er}\n") 
+                except:
+                    f.write(f"Weighted average of {parameter} not calculated.")
+
+            # Plotting results
+            plot_parameter(t, values, parameter, avg, weighted_avg, model_name)
+        
         f.write("\n\n")  
 
     f.close()
     # return tuple(dataframes)  
 
 
-## TODO: Possibly use a mask (same as above) for the HR
-## TODO: Add different symbol for cstat points.
-def plot_all_spectral_fit_results_helper(model_indexes=[0,1,2]):
+
+## TODO: Add different symbol for cstat points?
+def plot_spectral_results(models, models_indexes=[], uplims_IDs=[], uplims_MJDs=[], uplims_MJDs_er=[], uplims_fluxes=[], fixing=False):
 
     mpl.rcParams['xtick.labelbottom'] = False
-    
-    colours = {0:'blue', 1:'red', 2:'green'}
-    all_models = {0: "powerlaw", 1: "diskbb", 2: "both"}
-    model_names = [all_models[index] for index in model_indexes] # model_names = np.array(list(all_models.values()))
+    colours = ['blue', 'red', 'green']
 
-    ## Load in the files 
-    with open('./spectral_fit_results/xrt_spectral_dict.json', 'r') as j:
+    if not (len(uplims_IDs) == len(uplims_MJDs) == len(uplims_MJDs_er) == len(uplims_fluxes)):
+        raise ValueError("The lengths of uplims_IDs, uplims_MJDs, uplims_MJDs_er, and uplims_fluxes must be the same.")
+
+    # Check that none of the defined state ranges overlap
+    ranges_list = [np.array(value) for value_list in models_indexes for value in value_list]
+    ranges_list = [x for x in ranges_list if x.size > 0] # Remove empty arrays
+    if not ranges_okay(ranges_list):
+        print(f"The ranges have overlaps.")
+        return
+
+    ## Load in the results file
+    filename = './spectral_fit_results'
+    if fixing: filename+='_fixing'
+    filename+='/'
+    with open(filename+'xrt_spectral_dict.json', 'r') as j:
         xrt_fit_dict = json.load(j)
     
-    ## Convert each entry in the nester dictionary to a numpy array
+    # Convert each entry in the nester dictionary to a numpy array
     for key in xrt_fit_dict.keys():
         for keyi in xrt_fit_dict[key].keys():
             xrt_fit_dict[key][keyi] = np.array(xrt_fit_dict[key][keyi])
 
-    dates_MJD = xrt_fit_dict['powerlaw']['obs_mjds'] # all the models have the same MJDs
-    length = len(dates_MJD)
+    all_dates_MJD_start= xrt_fit_dict[models[0]]['obs_mjds'] # all the models have the same MJDs; this is the start MJD
+    all_exposures_MJD = xrt_fit_dict[models[0]]['exp [s]']/(24*60*60)
+    all_dates_MJD = all_dates_MJD_start + 0.5*all_exposures_MJD # middle MJD
+
+    if models_indexes!=[]: # Initialise dataframe to store final results
+        df = pd.DataFrame(columns=["obs_id", "middle_mjds", "mjd_range", "flux", "flux_er_neg", "flux_er_pos", "uplims", "model", "cstat_bool"])
 
     # Make the plot
-    fig, ax = plt.subplots(5, figsize=(10,11), sharex='col', gridspec_kw={'hspace': 0.1})#, 'height_ratios': [1.0, 0.4, 1.0, 1.0, 0.4,]})
+    fig, ax = plt.subplots(5, figsize=(20,17), sharex='col', gridspec_kw={'hspace': 0.1})#, 'height_ratios': [1.0, 0.4, 1.0, 1.0, 0.4,]})
+
+    # HR
+    # Filter the array to only include values where the error is low
+    lc_mjd, lc_cps, lc_cps_nerr, lc_cps_perr, index_uplims, hr_mjd, hr, hr_err = get_lightcurve_data(verbose=False)
+    mask= hr_err <= 0.05
+    ax[1].errorbar(Time(hr_mjd[mask], format='mjd').datetime, hr[mask], [hr_err[mask], hr_err[mask]], fmt='o', color='k',mfc='black')
+
+
+    length = len(all_dates_MJD)    
+    for i, model in enumerate(models): # make a mask for all the models, just for easier tracking of indexes
+
+        print("Model: ", model)
+
+        mask_valid = xrt_fit_dict[model]['nH']!=-1 # -1 indicates the fit was unsuccessful
+        
+        # Mask when index ranges are specified
+        try: 
+            model_range = models_indexes[i]
+            mask_filter = np.full(length, False)
+            for period in model_range:
+                if period==[]: continue
+                start_index, end_index = period[0], period[1]   
+                end_index = min(end_index, length - 1)  # Ensure end_index doesn't exceed the bounds of the array 
+                mask_filter[start_index: end_index+1] = True # Replace the False with True in those positions in mask
+        except: # there are no model_indexes specified
+            mask_filter = np.full(length, True)
+        
+        mask = mask_valid & mask_filter
+        print("Mask: ", mask)
+        print()
+
+        dates_MJD = all_dates_MJD[mask] # middle MJD
+        exposures = all_exposures_MJD[mask]
+
+        data = xrt_fit_dict[model]
+        
+        # Flux
+        # For the log values, we need to propagate uncertainties: if y = log_10(x), then x_unc = x * ln(10) * y_unc = 10**y * ln(10) * y_unc
+        if model=='pegged_powerlaw': flux, flux_neg, flux_pos = 1e-12*data['norm'][mask], 1e-12*data['norm_neg'][mask], 1e-12*data['norm_pos'][mask]
+        elif model=='powerlaw' or model=='diskbb' or model=='powerlaw+diskbb': flux, flux_neg, flux_pos = 10**data['lg10Flux'][mask], 10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask], 10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask]
+        elif model == "pegged_powerlaw+diskbb": flux, flux_neg, flux_pos = 1e-12*data['norm'][mask] + 10**data['lg10Flux'][mask], np.sqrt ( (1e-12*data['norm_neg'][mask])**2 + (10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask])**2 ) , np.sqrt( (1e-12*data['norm_pos'][mask])**2 + (10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask])**2 )
+        ax[0].errorbar(Time(dates_MJD, format='mjd').datetime, flux, [flux_neg, flux_pos], fmt='o',color='k', mfc=colours[i])
+
+        #print(len(data['IDs'][mask]))
+        #print()
+
+
+        if models_indexes!=[]:
+            df = pd.concat([df, pd.DataFrame({
+            "obs_id": data['IDs'][mask],
+            "middle_mjds": dates_MJD,
+            "mjd_range": exposures,
+            "flux": flux,
+            "flux_er_neg": flux_neg,
+            "flux_er_pos": flux_pos,
+            "uplims": np.nan,
+            "model": model,
+            "cstat_bool": data['cstat?'][mask]
+            })], ignore_index=True)
+
+
+        # Tin; only for models 'diskbb' and 'pegged_powerlaw+diskbb' and 'powerlaw+diskbb'
+        if model=="diskbb" or model=="pegged_powerlaw+diskbb" or model=="powerlaw+diskbb": 
+            Tin, Tin_neg, Tin_pos = data['Tin'][mask], data['Tin_neg'][mask], data['Tin_pos'][mask]
+            fixed_mask = (Tin_neg == 0) & (Tin_pos == 0)  # plot square if parameter was fixed during fitting
+            ax[2].errorbar(Time(dates_MJD[fixed_mask], format='mjd').datetime, Tin[fixed_mask], [Tin_neg[fixed_mask], Tin_pos[fixed_mask]], fmt='s', color='k', mfc=colours[i])
+            ax[2].errorbar(Time(dates_MJD[~fixed_mask], format='mjd').datetime, Tin[~fixed_mask], [Tin_neg[~fixed_mask], Tin_pos[~fixed_mask]], fmt='o', color='k', mfc=colours[i])
+
+        # Gamma; only for models 'pegged_powerlaw', 'powerlaw', 'powerlaw+diskbb', 'pegged_powerlaw+diskbb'
+        if model=="powerlaw" or model=="pegged_powerlaw" or model=="powerlaw+diskbb" or model=="pegged_powerlaw+diskbb": 
+            gamma, gamma_neg, gamma_pos = data['PhoIndex'][mask], data['PhoIndex_neg'][mask], data['PhoIndex_pos'][mask]
+            fixed_mask = (gamma_neg == 0) & (gamma_pos == 0) # plot square if parameter was fixed during fitting
+            ax[3].errorbar(Time(dates_MJD[fixed_mask], format='mjd').datetime, gamma[fixed_mask], [gamma_neg[fixed_mask], gamma_pos[fixed_mask]], fmt='s', color='k', mfc=colours[i])
+            ax[3].errorbar(Time(dates_MJD[~fixed_mask], format='mjd').datetime, gamma[~fixed_mask], [gamma_neg[~fixed_mask], gamma_pos[~fixed_mask]], fmt='s', color='k', mfc=colours[i])
+
+        # Chi^2
+        if models_indexes==[]: mask = np.full(length, True) # show all chi^2 results, even when it is above the threshold for the fit and error calculation to be considered successful
+        mask_no_cstat = xrt_fit_dict[model]['cstat?'] == False # exclude cstat points
+        mask = mask & mask_no_cstat
+        chi, dates_MJD = xrt_fit_dict[model]['redchi2'][mask], all_dates_MJD[mask]
+        ax[4].errorbar(Time(dates_MJD, format='mjd').datetime, chi, 0.0, fmt='o', color='k', mfc=colours[i], label=model)
+
+
+    if uplims_MJDs: # Add uplims
+        ax[0].errorbar(Time(uplims_MJDs, format='mjd').datetime, uplims_fluxes, yerr = 0, fmt='v', color='k',  mec='k', ms = 6, mew=2, mfc='white') # zorder=1000,
+        
+
+        if models_indexes!=[]:
+            df = pd.concat([df, pd.DataFrame({
+            "obs_id": uplims_IDs,
+            "middle_mjds": uplims_MJDs,
+            "mjd_range": np.array(uplims_MJDs_er) * 2,
+            "flux": np.nan,
+            "flux_er_neg": np.nan,
+            "flux_er_pos": np.nan,
+            "uplims": uplims_fluxes,
+            "model": None,
+            "cstat_bool": None
+            })], ignore_index=True)
+
+
+
 
     # Set plot constraints
     ax[0].set_yscale('log')
@@ -354,66 +560,39 @@ def plot_all_spectral_fit_results_helper(model_indexes=[0,1,2]):
     ax[3].set_ylabel('$\Gamma$')
     ax[4].set_ylabel(r'$\chi^2_\text{red}$')
     ax[4].set_yscale('log')
-
-    # Note that -1 indicates the fit was unsuccessful.
-    masks =[]
-    for model_name in all_models.values(): # make a mask for all the models, just for easier tracking of indexes
-        mask = xrt_fit_dict[model_name]['nH']!=-1
-        masks.append(mask)
-
-    all_dates_MJD = xrt_fit_dict['powerlaw']['obs_mjds']
-    
-    # Flux
-    # For the log values, we need to propagate uncertainties: if y = log_10(x), then x_unc = x * ln(10) * y_unc = 10**y * ln(10) * y_unc
-    for i, model_name in zip(model_indexes, model_names):
-        mask = masks[i]
-        data = xrt_fit_dict[model_name]
-        dates_MJD = all_dates_MJD[mask]
-        if model_name=='powerlaw': flux, flux_neg, flux_pos = 1e-12*data['norm'][mask], 1e-12*data['norm_neg'][mask], 1e-12*data['norm_pos'][mask]
-        elif model_name=='diskbb': flux, flux_neg, flux_pos = 10**data['lg10Flux'][mask], 10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask], 10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask]
-        elif model_name == "both": flux, flux_neg, flux_pos = 1e-12*data['norm'][mask] + 10**data['lg10Flux'][mask], np.sqrt ( (1e-12*data['norm_neg'][mask])**2 + (10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask])**2 ) , np.sqrt( (1e-12*data['norm_pos'][mask])**2 + (10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask])**2 )
-        ax[0].errorbar(Time(dates_MJD, format='mjd').datetime, flux, [flux_neg, flux_pos], fmt='o:',color='k', mfc=colours[i])
-
-    # HR
-    lc_mjd, lc_cps, lc_cps_nerr, lc_cps_perr, index_uplims, hr_mjd, hr, hr_err = get_lightcurve_data(verbose=False)
-    ax[1].errorbar(Time(hr_mjd, format='mjd').datetime, hr, [hr_err, hr_err], fmt='o:', color='k',mfc='black')
-
-    # Tin
-    indexes= [i for i in model_indexes if i in [1,2]] # disbb and both
-    for i in indexes: 
-        model_name, mask = all_models[i], masks[i]
-        data = xrt_fit_dict[model_name]
-        dates_MJD, Tin, Tin_neg, Tin_pos = all_dates_MJD[mask], data['Tin'][mask], data['Tin_neg'][mask], data['Tin_pos'][mask]
-        ax[2].errorbar(Time(dates_MJD, format='mjd').datetime, Tin, [Tin_neg, Tin_pos], fmt='o:',color='k', mfc=colours[i])
-
-    # Gamma
-    indexes= [i for i in model_indexes if i in [0,2]] # powerlaw and both
-    for i in indexes: 
-        model_name, mask = all_models[i], masks[i]
-        data = xrt_fit_dict[model_name]
-        dates_MJD, gamma, gamma_neg, gamma_pos = all_dates_MJD[mask], data['PhoIndex'][mask], data['PhoIndex_neg'][mask], data['PhoIndex_pos'][mask]
-        ax[3].errorbar(Time(dates_MJD, format='mjd').datetime, gamma, [gamma_neg, gamma_pos], fmt='o:', color='k', mfc=colours[i])
-
-    # Chi^2
-    for i, model_name in zip(model_indexes, model_names):
-        mask = xrt_fit_dict[model_name]['cstat?'] == False
-        chi, dates_MJD = xrt_fit_dict[model_name]['redchi2/redcstat'][mask], all_dates_MJD[mask]
-        ax[4].errorbar(Time(dates_MJD, format='mjd').datetime, chi, 0.0, fmt='o:', color='k', mfc=colours[i], label=model_name)
-
-    FormatAxis(ax, all_dates_MJD, interval = 30) # use helper function defined above
-
     ax[4].legend(fontsize=11)
+
+    T = all_dates_MJD[-1] - all_dates_MJD[0]
+    dt = int(T/4)
+    FormatAxis(ax, all_dates_MJD, interval = dt) # use helper function defined above
+
     
-    str = "_".join(model_names)
-    plt.savefig('./spectral_fit_results/all_fits_'+str+'.png')
+    if models_indexes==[]: # plots just for testing
+        name = "_".join(models)
+        plt.savefig(filename + 'all_fits_'+name+'.png')
+    
+
+    else: # final plots, once model index selection has been made
+        plt.savefig(filename+'final_fit_selection.png')
+
+        # Tabulate the results
+        df = df.sort_values(by="middle_mjds").reset_index(drop=True)
+        with open(filename + "final_fit_selection.txt", "w") as f:
+            f.write(df.to_string(index=False))  
+            f.write("\n")
+        # Save as a CSV file
+        df.to_csv(filename + "final_fit_selection.csv", index=False)
+    
     #plt.show()
 
 
-def plot_all_spectral_fit_results():
-    plot_all_spectral_fit_results_helper(model_indexes=[0,1,2])
-    plot_all_spectral_fit_results_helper(model_indexes=[0])
-    plot_all_spectral_fit_results_helper(model_indexes=[1])
-    plot_all_spectral_fit_results_helper(model_indexes=[2])
+def plot_all_spectral_fit_results(models, fixing):
+
+    if any(model not in ['powerlaw', 'pegged_powerlaw', 'diskbb', 'powerlaw+diskbb', 'pegged_powerlaw+diskbb']  for model in models):
+        raise ValueError(f"Error: Invalid model(s) found in array. Allowed values are: {['powerlaw', 'pegged_powerlaw', 'diskbb', 'powerlaw+diskbb', 'pegged_powerlaw+diskbb'] }")
+
+    for model in models: plot_spectral_results([model], fixing=fixing) # for each model individually
+    plot_spectral_results(models, fixing=fixing) # for all the models together
 
 
 
@@ -422,9 +601,17 @@ def plot_all_spectral_fit_results():
 def get_index_range(MJD_range):
 
     ## Load in the files 
-    with open('./spectral_fit_results/xrt_spectral_dict.json', 'r') as j:
-        xrt_fit_dict = json.load(j)
-    dates_MJD = xrt_fit_dict['powerlaw']['obs_mjds'] # all the models have the same MJDs
+
+    try: # this will only work if the fit has already been run
+        # Note that the data here has been time-ordered
+        with open('./spectral_fit_results/xrt_spectral_dict.json', 'r') as j:
+            xrt_fit_dict = json.load(j)
+        model = list(xrt_fit_dict.keys())[0]
+        dates_MJD = xrt_fit_dict[model]['obs_mjds'] # all the models have the same MJDs
+
+    except: 
+        raise RuntimeError("Run spectral fitting first.")
+
     
     start_val, end_val = MJD_range
     length= len(dates_MJD)
@@ -434,325 +621,21 @@ def get_index_range(MJD_range):
         return
     
     # Find the start index
-    if start_val == 0:
-        start_index = 0
-    elif start_val == np.inf:
-        start_index = length
-    else:
-        start_index = np.searchsorted(dates_MJD, start_val, side='left')
+    if start_val == 0: start_index = 0
+    elif start_val == np.inf: start_index = length
+    else: start_index = np.searchsorted(dates_MJD, start_val, side='left')
     
     # Find the end index
-    if end_val == np.inf:
-        end_index = length
-    else:
-        end_index = np.searchsorted(dates_MJD, end_val, side='right')
+    if end_val == np.inf: end_index = length
+    else: end_index = np.searchsorted(dates_MJD, end_val, side='right')
 
-    end_index-=1 # to be inclusive
+    end_index-=1 # to be an inclusive range
 
     print("For the MJD range [{start_val}, {end_val}), use the following indexes (starting from 0) for the xrt_spectral_dict: start index (inclusive)= {start_index} and end index (inclusive) = {end_index}.")
     
     
 
 
-# Once we have an idea which model we would like to use for each observation, we can run this with the models specified
-def get_nh(models_indexes={'powerlaw': [[7, 20]], 'diskbb': [[0, 5]], 'both':[[6, 6]]}):
 
-    # Load JSON data from file
-    json_path = "./spectral_fit_results/xrt_spectral_dict.json"
-    with open(json_path, 'r') as file:
-        data = json.load(file)
-
-    f = open("./spectral_fit_results/nh.txt", "w")
-
-    models = ["powerlaw", "diskbb", "both"]
-    for model_name in models: 
-        df = pd.DataFrame(data[model_name])
-        length = df.shape[0]
-        mask = np.full(length, False)
-        model_range = models_indexes[model_name]
-        for period in model_range:
-            start_index, end_index = period[0], period[1]  
-            end_index = min(end_index, length - 1)  # Ensure end_index doesn't exceed the bounds of the array
-            mask[start_index: end_index+1] = True # Replace the False with True in those positions in mask
-        filtered_df = df[mask]
-        f.write(model_name +"\n") 
-        f.write(filtered_df.to_string(index=True))
-        # Calculate the average of the nH column for the filtered rows
-        avg_nh = filtered_df['nH'].mean()
-        # Write the average to the file
-        f.write(f"\nAverage nH: {avg_nh}\n") 
-
-        # Do weighted average
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            try: # will only work if some of the values haven't been fixed
-                avg_nh = np.average(filtered_df['nH'], weights = np.amax((filtered_df['nH_neg'], filtered_df['nH_pos']), axis=0).astype(float) **(-2)) # Computes the weighted average of nh, using the inverse square of the maximum uncretainty values as the weights.
-                nh_neg_er = np.sum(filtered_df['nH_neg'].astype(float) ** (-2)) ** (-0.5)
-                nh_pos_er = np.sum(filtered_df['nH_pos'].astype(float) ** (-2)) ** (-0.5)
-                # (Note: I could also propagate into this the uncertainty due to the variance of the results)
-                f.write(f"Weighted average nH: {avg_nh} + {nh_pos_er} - {nh_neg_er}\n") 
-            except:
-                print("Weighted average not calculated.")
-        f.write("\n\n")  
-
-    f.close()
-
-
-##########################################################
-## FINAL SPECTRAL RESULTS FUNCTIONS
-
-
-## TODO: Possibly use a mask (same as above) for the HR
-## TODO: Remove the cstat plotting
-## TODO: Add different symbol for cstat points.
-def plot_spectral_results(uplims_MJDs=[60444.44583857,60448.53271186], uplims_fluxes=[2.63826081e-12, 2.37226154e-12], models_indexes={'powerlaw': [[7, 20]], 'diskbb': [[0, 5]], 'both':[[6, 6]]}): 
-    
-    mpl.rcParams['xtick.labelbottom'] = False
-
-    colours = ['blue', 'red', 'green']
-    model_names = ["powerlaw", "diskbb", "both"]
-
-    if len(uplims_MJDs)!=len(uplims_fluxes):
-        print("uplims_MJDs and uplims_fluxes should have the same length.")
-        return
-
-    # Check that none of the defined state ranges overlap
-    ranges_list = [np.array(value) for value_list in models_indexes.values() for value in value_list]
-    # Remove empty arrays
-    ranges_list = [x for x in ranges_list if x.size > 0]
-    #print(ranges_list)
-    if not ranges_okay(ranges_list):
-        print(f"The  ranges for splitting the observation have overlaps.")
-        return
-
-    ## Load in the files 
-    with open('./spectral_fit_results/xrt_spectral_dict.json', 'r') as j:
-        xrt_fit_dict = json.load(j)
-    
-    ## Convert each entry in the nester dictionary to a numpy array
-    for key in xrt_fit_dict.keys():
-        for keyi in xrt_fit_dict[key].keys():
-            xrt_fit_dict[key][keyi] = np.array(xrt_fit_dict[key][keyi])
-
-    dates_MJD = xrt_fit_dict['powerlaw']['obs_mjds']
-    length = len(dates_MJD)
-
-    # Make the plot
-    fig, ax = plt.subplots(5, figsize=(12,17), sharex='col', gridspec_kw={'hspace': 0.1})#, 'height_ratios': [1.0, 0.4, 1.0, 1.0, 0.4,]})
-
-
-    masks = []
-    for model_name in model_names: 
-        mask = np.full(length, False)
-        model_range = models_indexes[model_name]
-        for period in model_range:
-            #print(period)
-            if period==[]: continue
-            start_index, end_index = period[0], period[1]   
-            end_index = min(end_index, length - 1)  # Ensure end_index doesn't exceed the bounds of the array 
-            mask[start_index: end_index+1] = True # Replace the False with True in those positions in mask
-        masks.append(mask)
-
-    all_dates_MJD = xrt_fit_dict['powerlaw']['obs_mjds']
-
-    # Flux
-    for i, model_name in enumerate(['powerlaw', 'diskbb', 'both']):
-        mask = masks[i]
-        data = xrt_fit_dict[model_name]
-        dates_MJD = all_dates_MJD[mask]
-        if model_name=='powerlaw': flux, flux_neg, flux_pos = 1e-12*data['norm'][mask], 1e-12*data['norm_neg'][mask], 1e-12*data['norm_pos'][mask]
-        elif model_name=='diskbb': flux, flux_neg, flux_pos = 10**data['lg10Flux'][mask], 10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask], 10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask]
-        elif model_name == "both": flux, flux_neg, flux_pos = 1e-12*data['norm'][mask] + 10**data['lg10Flux'][mask], np.sqrt ( (1e-12*data['norm_neg'][mask])**2 + (10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask])**2 ) , np.sqrt( (1e-12*data['norm_pos'][mask])**2 + (10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask])**2 )
-        ax[0].errorbar(Time(dates_MJD, format='mjd').datetime, flux, [flux_neg, flux_pos], fmt='o',color='k', mfc=colours[i])
-
-
-    # Add uplims
-    ax[0].errorbar(Time(uplims_MJDs, format='mjd').datetime, uplims_fluxes, yerr = 0, fmt='v', color='k',  mec='k', ms = 6, mew=2, mfc='white') # zorder=1000,
-
-    # HR
-    lc_mjd, lc_cps, lc_cps_nerr, lc_cps_perr, index_uplims, hr_mjd, hr, hr_err = get_lightcurve_data(verbose=False)
-    ax[1].errorbar(Time(hr_mjd, format='mjd').datetime, hr, [hr_err, hr_err], fmt='o', color='k',mfc='black')
-    
-
-    # Tin
-    for i in [1,2]: # disbb and both
-        model_name, mask = model_names[i], masks[i]
-        data = xrt_fit_dict[model_name]
-        dates_MJD, Tin, Tin_neg, Tin_pos = all_dates_MJD[mask], data['Tin'][mask], data['Tin_neg'][mask], data['Tin_pos'][mask]
-        ax[2].errorbar(Time(dates_MJD, format='mjd').datetime, Tin, [Tin_neg, Tin_pos], fmt='o',color='k', mfc=colours[i])
-
-    # Gamma
-    for i in [0,2]: # powerlaw and both
-        model_name, mask = model_names[i], masks[i]
-        data = xrt_fit_dict[model_name]
-        dates_MJD, gamma, gamma_neg, gamma_pos = all_dates_MJD[mask], data['PhoIndex'][mask], data['PhoIndex_neg'][mask], data['PhoIndex_pos'][mask]
-        ax[3].errorbar(Time(dates_MJD, format='mjd').datetime, gamma, [gamma_neg, gamma_pos], fmt='o', color='k', mfc=colours[i])
-
-    # Chi^2
-    for i, model_name in enumerate(['powerlaw', 'diskbb', 'both']):
-        mask = masks[i]
-        mask_no_cstat = xrt_fit_dict[model_name]['cstat?'] == False
-        mask = mask & mask_no_cstat
-        chi = xrt_fit_dict[model_name]['redchi2/redcstat'][mask]
-        dates_MJD = all_dates_MJD[mask]
-        ax[4].errorbar(Time(dates_MJD, format='mjd').datetime, chi, 0.0, fmt='o', color='k', mfc=colours[i], label=model_name)
-    
-    # Set plot constraints
-    ax[0].set_ylabel('Flux [1$-$10 keV]\n(erg s$^{-1}$ cm$^{-1}$)')
-    ax[0].set_yscale('log')
-    ax[1].set_ylabel(r'HR $\left(\frac{[0.5-2\,\text{keV}]}{[2-10\,\text{keV}]}\right)$')
-    ax[2].set_ylabel(r'$k_B T_\text{in}$ (keV)')
-    ax[3].set_ylabel('$\Gamma$')
-    ax[4].set_ylabel(r'$\chi^2_\text{red}$/Cstat$_\text{red}$')
-    ax[4].set_yscale('log')
-    ax[4].legend(fontsize=11)
-    
-    FormatAxis(ax, all_dates_MJD, interval = 30) # use helper function defined above
-
-    
-    plots_dir = "./plots/"
-    if not os.path.exists(plots_dir):
-        os.makedirs(plots_dir)
-        print(f"{plots_dir } has been created.")
-    plt.savefig('./plots/flux.png')
-    #plt.show()
-
-
-
-# For the ranges [start, end] is inclusive (i.e. includes the start and end index value)
-## TODO: Only show chi^2 for chosen ranges, as above
-## TODO: Add HR, as above
-## TODO: Remove the cstat plotting
-## TODO: Add different symbol for cstat points.
-## TODO: I might also want to use different markers/colours for the various models used. In this case, since errrobar only accepts a single symbol, and I want the flux points to be connected, I will have to first plot the line connecting all the points, and then plot the errobars in a loop.
-def plot_spectral_results_connected_lines(uplims_MJDs=[60444.44583857,60448.53271186], uplims_fluxes=[2.63826081e-12, 2.37226154e-12], models_indexes={'powerlaw': [[7, 20]], 'diskbb': [[0, 5]], 'both':[[6, 6]]}): 
-
-    mpl.rcParams['xtick.labelbottom'] = False
-
-    colours = ['white', 'black', 'grey']
-    models = ["powerlaw", "diskbb", "both"]
-
-    if len(uplims_MJDs)!=len(uplims_fluxes):
-        print("uplims_MJDs and uplims_fluxes should have the same length.")
-        return
-
-    # Check that none of the defined state ranges overlap
-    ranges_list = [np.array(value) for value_list in models_indexes.values() for value in value_list]
-    if not ranges_okay(ranges_list):
-        print(f"The  ranges for splitting the observation have overlaps.")
-        return
-
-    ## Load in the files 
-    with open('./spectral_results/xrt_spectral_dict.json', 'r') as j:
-        xrt_fit_dict = json.load(j)
-    
-    ## Convert each entry in the nester dictionary to a numpy array
-    for key in xrt_fit_dict.keys():
-        for keyi in xrt_fit_dict[key].keys():
-            xrt_fit_dict[key][keyi] = np.array(xrt_fit_dict[key][keyi])
-
-    dates_MJD = xrt_fit_dict['powerlaw']['obs_mjds']
-    length = len(dates_MJD)
-
-    # Make the plot
-    fig, ax = plt.subplots(4, figsize=(10,11), sharex='col', gridspec_kw={'hspace': 0.1})#, 'height_ratios': [1.0, 0.4, 1.0, 1.0, 0.4,]})
-
-    # Set plot constraints
-    ax[0].set_yscale('log')
-    ax[0].set_ylabel('Flux [1$-$10 keV]\n(erg s$^{-1}$ cm$^{-1}$)')
-    ax[1].set_ylabel(r'$k_B T_\text{in}$ (keV)')
-    ax[2].set_ylabel('$\Gamma$')
-    ax[3].set_ylabel(r'$\chi^2_\text{red}$/Cstat$_\text{red}$')
-    ax[3].set_yscale('log')
-    
-    flux_all, flux_all_pos, flux_all_neg, Tin_all, Tin_all_pos, Tin_all_neg, gamma_all, gamma_all_pos, gamma_all_neg = np.full((9,length), np.nan)
-
-    for i, model_name in enumerate(models):
-        print(model_name)
-        mask = np.full(length, False)
-        
-        model_range = models_indexes[model_name]
-        for period in model_range:
-            start_index, end_index = period[0], period[1]    
-            mask[start_index: end_index+1] = True # Replace the False with True in those positions in mask
-        print(mask)
-
-        # Flux
-        if model_name=="powerlaw": flux, flux_neg, flux_pos = 1e-12 *xrt_fit_dict['powerlaw']['norm'], 1e-12 *xrt_fit_dict['powerlaw']['norm_neg'], 1e-12 *xrt_fit_dict['powerlaw']['norm_pos']
-        if model_name=="diskbb": flux, flux_neg, flux_pos = 10 **xrt_fit_dict['diskbb']['lg10Flux'], 10 **xrt_fit_dict['diskbb']['lg10Flux'] * np.log(10) * xrt_fit_dict['diskbb']['lg10Flux_neg'], 10 **xrt_fit_dict['diskbb']['lg10Flux']* np.log(10) * xrt_fit_dict['diskbb']['lg10Flux_neg']
-        if model_name=="both": flux, flux_neg, flux_pos = 1e-12 *xrt_fit_dict['both']['norm'] + 10 **xrt_fit_dict['both']['lg10Flux'], 1e-12 *xrt_fit_dict['both']['norm_neg'] + 10 **xrt_fit_dict['both']['lg10Flux'] * np.log(10) * xrt_fit_dict['both']['lg10Flux_neg'], 1e-12 *xrt_fit_dict['both']['norm_pos'] + 10 **xrt_fit_dict['both']['lg10Flux']* np.log(10) * xrt_fit_dict['both']['lg10Flux_neg']
-        flux_all[mask] = flux[mask]
-        flux_all_pos[mask] = flux_pos[mask]
-        flux_all_neg[mask] = flux_neg[mask]
-        
-        # Tin
-        if model_name=="diskbb" or model_name=="both": # diskbb
-            Tin, Tin_neg, Tin_pos = xrt_fit_dict[model_name]['Tin'], xrt_fit_dict[model_name]['Tin_neg'], xrt_fit_dict[model_name]['Tin_pos']
-        else: 
-            Tin, Tin_neg, Tin_pos = np.full(length, np.nan), np.full(length, np.nan), np.full(length, np.nan)
-        Tin_all[mask] = Tin[mask]
-        Tin_all_neg[mask] = Tin_neg[mask]
-        Tin_all_pos[mask] = Tin_pos[mask]
-
-        # Gamma
-        if model_name=="powerlaw" or model_name=="both": # powerlaw
-            gamma, gamma_neg, gamma_pos = xrt_fit_dict[model_name]['PhoIndex'], xrt_fit_dict[model_name]['PhoIndex_neg'], xrt_fit_dict[model_name]['PhoIndex_pos']
-        else: 
-            gamma, gamma_neg, gamma_pos = np.full(length, np.nan), np.full(length, np.nan), np.full(length, np.nan)    
-        gamma_all[mask] = gamma[mask]
-        gamma_all_neg[mask] = gamma_neg[mask]
-        gamma_all_pos[mask] = gamma_pos[mask]
-
-        # Chi^2
-        chi= xrt_fit_dict[model_name]['redchi2/redcstat']
-        ax[3].errorbar(Time(dates_MJD, format='mjd').datetime, chi, 0.0, fmt='o:', color='k', mfc=colours[i], label=model_name)
-
-
-        # Transition lines
-        transitions = np.where(mask[:-1] != mask[1:])[0]
-        for i in transitions:
-            date1 = dates_MJD[i]
-            date2 = dates_MJD[i + 1]
-            avg_mjd = (date1 + date2) / 2
-            avg_datetime = Time(avg_mjd, format='mjd').datetime
-            for ax_i in ax: ax_i.axvline(avg_datetime, ls='--', color='k')
-    
-    
-    def plot(j, y, yer_neg, yer_pos):
-        indexes = np.isnan(y) # some of the values have remained NaN
-        ax[j].errorbar(Time(dates_MJD[~indexes], format='mjd').datetime, y[~indexes], [yer_neg[~indexes], yer_pos[~indexes]], fmt='o:', color='k')
-        indexes_fixed = (yer_neg == 0) & (yer_pos == 0) # parameters that were fixed
-        ax[j].scatter(Time(dates_MJD[indexes_fixed], format='mjd').datetime, y[indexes_fixed], marker='s', color='k')
-    plot(1, Tin_all, Tin_all_neg, Tin_all_pos)
-    plot(2, gamma_all, gamma_all_neg, gamma_all_pos)
-
-    
-    ## Add uplims
-    if uplims_fluxes!=None:
-        flux_all= np.concatenate((flux_all, uplims_fluxes))
-        dates_MJD= np.concatenate((dates_MJD, uplims_MJDs))
-        flux_all_neg = np.concatenate((flux_all_neg, np.full(len(uplims_fluxes), np.nan)))
-        flux_all_pos = np.concatenate((flux_all_pos, np.full(len(uplims_fluxes), np.nan)))
-        indexes_ordered = np.argsort(dates_MJD)
-        dates_MJD = dates_MJD[indexes_ordered]
-        flux_all = flux_all[indexes_ordered]
-    
-    # Have to do it this way so that the upper limits connect with the rest of the points
-    ax[0].errorbar(Time(dates_MJD, format='mjd').datetime, flux_all, [flux_all_neg, flux_all_pos], fmt='o:', color='k')
-    # Plot uplims on top:
-    ax[0].errorbar(Time(uplims_MJDs, format='mjd').datetime, uplims_fluxes, yerr = 0, fmt='v', color='k', zorder=1000, mec='k', ms = 10, mew=2, mfc='white') 
-
-    FormatAxis(ax, dates_MJD, interval = 30) # use helper function defined above
-
-    ax[3].legend()
-    plt.savefig('./plots/flux_connected_lines.png')
-    #plt.show()
-
-
-
-## TODO
-## Take in date ranges for the models and then tabulate final results
-def tabulate_final_results(uplims_MJDs, uplims_fluxes, models_indexes):
-    print("TODO: tabulate final results")
-
+####################################################################################################################
 

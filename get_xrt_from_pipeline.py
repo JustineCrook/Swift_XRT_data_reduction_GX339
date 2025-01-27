@@ -39,7 +39,7 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
     # SinceTO: whether all time variables are relative to T0
     # RA and dec: object coordinates in J2000
     # centroid: boolean indicating whether to try centroid in the XRT coordinate frame
-    # useSXPS: boolean indicating whether to use source lists from SXPS where possible. The 2SXPS catalogue is used to identify sources in the field which should be excluded from the background.
+    # useSXPS: boolean indicating whether to use source lists from SXPS where possible. The 2SXPS catalogue is used to identify sources in the field which should be excluded from the background. This is not really necessary for single source pointed observations, especially when our source is the brightest.
     # poserr: how far from the input position the centroid position can be (arcmin)
     myRequest.setGlobalPars(name=target_name,
                         targ=target_id,
@@ -47,7 +47,7 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
                         RA=target_coords[0],
                         Dec=target_coords[1],
                         centroid=centroid,
-                        useSXPS=False,
+                        useSXPS=False, 
                         posErr=1)
 
     # ~~~~~~~~ #
@@ -177,10 +177,13 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
 
         # Check if there is a directory for the target_id
         lightcurve_target_dir = f'{lightcurve_dir}{target_id}'
-        if os.path.exists(lightcurve_target_dir):
-            shutil.rmtree(lightcurve_target_dir)
-            print(f"{lightcurve_target_dir} has been removed.")
-        else:
+        #if os.path.exists(lightcurve_target_dir):
+        #    shutil.rmtree(lightcurve_target_dir)
+        #    print(f"{lightcurve_target_dir} has been removed.")
+        #else:
+        #    os.makedirs(lightcurve_target_dir)
+        #    print(f"{lightcurve_target_dir} has been created.")
+        if not os.path.exists(lightcurve_target_dir):
             os.makedirs(lightcurve_target_dir)
             print(f"{lightcurve_target_dir} has been created.")
         
