@@ -11,7 +11,16 @@ from xspec import *
 """
 For some data points, we only have upper limits. 
 We therefore cannot use spectral fitting to obtain the flux, so we need to rely on alternative methods. 
-Before running this file, we need: 
+
+One could just use the upper limit 3-sigma count rates from the website pipeline, and use WebPIMMS (assuming a particular nH value) to convert to a flux. 
+
+However, the method used below is a little more robust. The reason for adopting it is as follows:
+- In theory, the method of using 'show rates' vs WebPIMMS (assuming all else is equal) should give the same answer. We chose the former because the ARF/RMF files may cause slight variations (in time) that WePIMMS doesn't account for but doing it in HEASoft would.
+- In terms of re-calculating the 3-sigma count rate for the non-detections vs using the ones in the pipeline, the region-size in the website algorithm for non-detections sometimes seems to get the wrong size. So instead we wanted more control over that.
+All of these are third-order effects, so one could just use the first method. 
+
+
+Before running this file, we need to run: 
 module load heasoft/6.33
 source /mnt/users/crookmansourj/swiftenv/bin/activate
 """
@@ -332,7 +341,6 @@ def get_values_for_uplims(obs_id, ra, dec, count_rate, nH, gamma):
     return int(n_src), float(backscal_src), float(exposure), int(n_bkg), float(backscal_bkg), float(count_rate_factor)
 
 
-# xrtmkarf phafile=./uplims_analysis/src_00010627132wt.pha outfile=./uplims_analysis/src_00010627132wt.arf expofile=./uplims_analysis/sw00010627132xwtw2po_ex.img srcx=-1 srcy=-1 psfflag=yes
 
 ##########################################################################################################################################################################################################################
 
@@ -396,6 +404,8 @@ def get_uplim_fluxes(n_src= [], n_bkg=[], backscal_src=[], backscal_bkg=[], expo
     # Scale the net error for a 3-sigma upper limit on the count rate
     exposure = np.array(exposure)
     count_rate = 3 * net_err / exposure
+
+    print("3-sigma uplim count rate \n" + np.array2string(count_rate, separator=","))
 
     # The norm when obtaining count_rate_factor was fixed to flux = 1e-12 ergs/s/cm
     flux_conversion = 1e-12/np.array(count_rate_factor)

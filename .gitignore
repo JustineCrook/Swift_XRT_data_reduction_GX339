@@ -63,3 +63,6 @@ jakob_data/
 test_spectrum_143/
 test_spectrum_144/
 testing/
+TESTING/
+run_files/
+xspec_files/

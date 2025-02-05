@@ -6,15 +6,18 @@ NOTES FOR MAXI J1820+070:
 """
 
 
+##TODO: change fix so that it's always assumed nH is for everything and always assumed gamma, Tin are for the low-count observations
+
+
 ######################################################################################################################
 
 ## FUNCTION TO RUN
-analysis_type = "step4"
+analysis_type = "constrained_fit"
  
 
 ######################################################################################################################
 
-## STEP 1 INPUTS --- DATA RETRIEVAL
+## DATA RETRIEVAL -- get_data
 
 # Target coordinates
 target_coords = [275.0914, 7.1854]
@@ -35,13 +38,24 @@ target_ids = ['00014223', '00015032', '00088657']
 segments_lc = [[1,3,4,5,6,7,8,9,10,11,12,13,15,14,16,17,19,18,24,25,26,27,28,29,30,31,32,33,34,35,37,38,39,40,41,42,43,44,46,47,48,49,50,51,52,53], [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20], [10,11]]
 segments_spec = segments_lc
 
+
+
 ######################################################################################################################
 
-## STEP 2 
+## GROUPING SPECTRA -- group_spectra
+
+# Minimum number of counts for the chi^2 bins when ncounts>300
+min_counts_chi = 25
+# Minimum energy of the first bin, which is the energy from which we start the binning
+min_E_keV = 0.5 
+
+######################################################################################################################
+
+## PLOT LIGHT CURVE AND HARNESS RATIO -- plot_lightcurve_and_hr
 # No inputs required
 
 
-## STEP 2 RESULTS -- FROM LIGHT CURVE ROUTINE
+## RESULTS -- FROM LIGHT CURVE ROUTINE
 # After running the light curve routine, the code outputs which observations are upper limits.
 # These should not be fitted, so are input to the spectral fitting function (steps 3 and 5).
 # The code also outputs the count rate, used when converting count rate to flux (step 6).
@@ -54,34 +68,49 @@ uplims_MJDs_er = [1.293086111111112e-01,1.024032407407408e-02,1.122268518518518e
 
 ######################################################################################################################
 
-## STEP 3 INPUTS --- INITIAL MODEL FITTING
+## INPUTS --- INITIAL MODEL FITTING -- uncontrained_fit
 # Uses uplims_IDs defined above
 
 # Define models to fit -- used for fit_spec
-models = ['pegged_powerlaw', 'powerlaw+diskbb'] 
-low_energy_fit_bound_keV = 0.5 # must be 0.5 <= x <= 1.0 
+models = ['pegged_powerlaw'] 
+
 
 
 ## STEP 3 RESULTS --- FROM MODEL FITTING RESULTS
 # The spectral_results.txt file lists the low_count_indexes, which correspond to observations that cannot initial be fit (due to low count rate), so require some fitting parameters to be fixed.
+
+# For 0.5-10keV range fit:
 low_count_indexes = [ 33, 34, 35, 36, 65, 71, 72, 73, 74, 75, 76, 77, 78, 79, 91, 97, 98, 99,100,101,113,114,115,116, 117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140, 141,142,143,144,145,146,147,149,150,152,153,154,156,157,158,159,160,161,162,163,164,165,166,167, 168,169,170,171,172]
 
 
 ######################################################################################################################
 
-## STEP 4 INPUTS --- GET PARAMETER VALUES (N_H, GAMMA, T_IN)
+## F-TEST
+
+fixing = True
+simple_model = 'pegged_powerlaw'
+complex_model = 'powerlaw+diskbb'
+
+
+######################################################################################################################
+
+## GET PARAMETER VALUES (N_H, GAMMA, T_IN) -- get_param_averages
 
 # Based on the spectral fit results (step 3) and any prior knowledge regarding spectral state ranges, define which spectral model to use for each point in time.
 # model_indexes is a multi-dimensional array. Each outer element corresponds to the models defined above. The inner elements are ranges for each model.
 # The index ranges are inclusive (i.e. [start, end]), and correspond to those listed in the spectral_results.txt file.
 # e.g. models_indexes=[ [[6, 17], [19, 21]] , [[0, 5]] , [[]] ] means the first model should be used for the observations corresponding to indexes 6-17 and 19-21, the second model should be used for observations 0-5, and the last model that was fit should not be used
 # If none, use models_indexes = []
-models_indexes=[ [[8,172]], [[0,7]]]
+#models_indexes=[ [[8,172]], [[0,7]], [[0,7]]]
+
+# For 0.5-10keV fit:
+#models_indexes=[ [[8,172]], [[0,172]], [[0,172]]]
+
 
 
 ######################################################################################################################
 
-## STEP 5 INPUTS --- MODEL FITTING WITH SOME FIXED PARAMETERS
+## INPUTS --- MODEL FITTING WITH SOME FIXED PARAMETERS -- constrained_fit
 # Re-run spectral fitting, but this time we want to fit the parameters for some observations -- using the results of step 4 and/or any prior knowledge (e.g. nH values in papers).
 # Uses uplims_IDs, models, low_energy_fit_bound_keV, and low_count_indexes -- defined above
 
@@ -89,15 +118,15 @@ models_indexes=[ [[8,172]], [[0,7]]]
 # The indices below correspond to those listed in the spectral_results.txt file
 # If we want to fix parameters: fix = {"nh": {"indices": "all", "value": 0.1989}, "gamma": {"indices": [-4, -3, -2, -1], "value": 1.7}, "Tin": {"indices": [-4, -3, -2, -1], "value": 0.5} }
 # We will want to fix parameters for low_count_indexes, defined above, e.g. fix = {"nh": {"indices": "all", "value": 0.2}, "gamma": {"indices": low_count_indexes, "value": 1.62}, "Tin": {"indices": low_count_indexes, "value": 0.5}}
-nH = 0.09100 # 0.2175 for the 1-10keV fit
-gamma = 1.6153 # 1.6880 for the 1-10keV fit
-Tin = 0.5
+nH = 0.09100 
+gamma = 1.6205 
+Tin = 0.5137
 fix = {"nh": {"indices": "all", "value": nH}, "gamma": {"indices": low_count_indexes, "value": gamma}, "Tin": {"indices": low_count_indexes, "value": Tin}}
 
 
 ######################################################################################################################
 
-## STEP 6 INPUTS --- GET UPPER LIMIT FLUXES
+## INPUTS --- GET UPPER LIMIT FLUXES -- get_uplims
 # No further inputs required
 # This step uses target_coords, the nH and gamma values above, and the upper limit inputs from step 2.
 
@@ -108,8 +137,11 @@ uplims_fluxes = [5.3173796344917639e-11, 2.0000729759577985e-12, 2.3756583459663
 
 ######################################################################################################################
 
-## STEP 7 INPUTS --- FINAL RESULTS
-# No further inputs required
+## INPUTS --- FINAL RESULTS -- get_final_results
+
+# For 0.5-10keV fit:
+#models_indexes=[ [[11,172]], [[0,5], [7,10]], [[6,6]]]
+models_indexes=[ [[11,172]], [[0,10]] ]
 
 
 ######################################################################################################################

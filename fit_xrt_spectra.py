@@ -8,6 +8,7 @@ from astropy.io import fits
 from astropy.time import Time
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import pandas as pd
 
 from xspec import * 
 
@@ -39,9 +40,9 @@ def initialise_model(model, flux_guess, fix_names, fix_values, parameters=None):
     # So in our fitting, if any of the values get pegged at the bounds, it either means; (i) the spectrum is insensitive to the pegged model, and thus it might not be necessary; (ii) we are stuck in a local minimum and may require more hands-on spectral fitting.
     if parameters==None:
         parameters = {
-        "nh": '0.2,,0.005,0.005,10,10',  # absorption, range 0.005-10
+        "nh": '0.2,,0.005,0.005,10,10',  # absorption, range 0.005-10 <<<<<<<<<<<<<<<<<<<<<<<<<
         "gamma": '1.7,,0.0,0.0,4.0,4.0',  # spectral index, range 0-4 
-        "Tin": '1.0,,0.05,0.05,5.0,5.0',  # temperature, range 0.05-5
+        "Tin": '0.5,,0.05,0.05,4.0,4.0',  # temperature, range 0.05-4
         "norm1": '1.0',
         "norm2": '1.0'
         }
@@ -169,34 +170,44 @@ def plot_resid(spectrum_name, mod_name, fixing):
     if not os.path.exists(plots_dir):
         os.makedirs(plots_dir)
 
-    Plot('data') # data from most recent Fit that was performed
+    Plot('data resid') # data from most recent Fit that was performed
 
     # Get coordinates from plot:
     x = Plot.x()
     rates = Plot.y()
     yer = Plot.yErr()
+    xer = Plot.xErr()
     folded = Plot.model()
-    resids = np.array(rates) - np.array(folded)
+    #resids = np.array(rates) - np.array(folded)
+    resids = Plot.y(1,2)
+
+    dataLabels = Plot.labels(1)
+    residLabels = Plot.labels(2)
 
     fig, ax = plt.subplots(2, 1, figsize=(8, 6), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
 
-    ax[0].errorbar(x, rates, yerr=yer, fmt='ro',ms=1, label="Data", elinewidth=0.2)
-    #ax[0].plot(x, rates, 'ro', label="data", ms=1)
-    ax[0].plot(x, folded, 'b', label="model", linewidth=1)
-    ax[0].set_ylabel(r'counts/cm$^2$/sec/keV')
+    ax[0].errorbar(x, rates,xerr=xer, yerr=yer, fmt='ro',ms=1, label="data", elinewidth=0.2)
+    ax[0].plot(x, folded, 'b', label="model", linewidth=1, zorder=100)
+    ax[0].set_ylabel(dataLabels[1]) #ax[0].set_ylabel(r'counts/cm$^2$/sec/keV')
     ax[0].legend(fontsize=11)
 
     ax[1].plot(x, resids, 'g', label="residuals (data-model)", linewidth=1)
-    ax[1].set_xlabel('Energy [keV]')
+    ax[1].set_ylabel(residLabels[1])
+    ax[1].set_xlabel(residLabels[0]) #ax[1].set_xlabel('Energy [keV]')
     ax[1].legend(fontsize=11)
 
     ax[0].set_title("Spectrum: " + spectrum_name + " & model: " + mod_name)
 
     # Save the results
     plt.savefig(plots_dir+ spectrum_name+"_"+mod_name)
+    
+    # Also save results on log scales
     ax[0].set_yscale("log")
     ax[0].set_xscale("log")
     plt.savefig(plots_dir+ spectrum_name+"_"+mod_name+"_log")
+
+    # Clear the plot
+    plt.clf()
 
 
 
@@ -205,13 +216,20 @@ def plot_resid(spectrum_name, mod_name, fixing):
 # Note: We don't fit the entire energy range of data because the response of the instrument is worse at the edges of the band.
 ##TODO: Checking the fix parameters
 ##TODO: Fill all with -1 by default (of correct length), to clean up the code
-def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit_bound_keV = 0.5, count_threshold = 50, fix={}):
+def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit_bound_keV = 0.5, count_threshold = 50, fix={}, add_systematic = False):
 
     if any(model not in ['powerlaw', 'pegged_powerlaw', 'diskbb', 'powerlaw+diskbb', 'pegged_powerlaw+diskbb'] for model in models):
         raise ValueError(f"Error: Invalid model(s) found in array. Allowed values are: {['powerlaw', 'pegged_powerlaw', 'diskbb', 'powerlaw+diskbb', 'pegged_powerlaw+diskbb']}")
     
     if fix =={}: fixing = False
     else: fixing = True
+
+    # Folder for results
+    folder = './spectral_fit_results'
+    if fixing: folder+='_fixing'
+    folder+='/'
+    if not os.path.exists(folder):
+        os.makedirs(folder)
 
     # Initialise XSPEC
     # Xset: storage class for XSPEC settings
@@ -220,7 +238,7 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
     Xset.chatter = 0 # set the console chatter level... change this to 10 for more chatter
     Xset.logChatter = 20
     Xset.openLog("xspec.log") 
-    Xset.parallel.error = 10 # use up to 10 parallel processes during the Fit.error() command runs
+    #Xset.parallel.error = 1 # previously 10, i.e. use up to 10 parallel processes during the Fit.error() command runs... however, this caused issues with the parameter saving being done before the values were updated during the error calculation
 
     # Fit: manager class for setting properties and running a fit
     Fit.query = "yes"      # when nIterations is reached, continue the fit without stopping to query
@@ -236,52 +254,72 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
     spectral_files = glob.glob('./spectra/*final.pi') # the spectra after the grouping script has been run
     n_spectra = len(spectral_files) 
 
-    mode = np.array([file[-10:-8] for file in spectral_files]) # PC or WT
     
     # Initialise and fill variables
     obs_isots  = [] # to hold the observation dates
+    end_obs_isots = []
     bin_counts = [] # to hold number of counts in grouped bin -- in order to decide whether chi^2 or C-stats should be used
     tot_counts = []
     exp = []
-    for spectrum_file in spectral_files:
+    for i, spectrum_file in enumerate(spectral_files):
         header = fits.getheader(spectrum_file, ext = 1)
         obs_isots.append(header['DATE-OBS']) # start date
+        end_obs_isots.append(header['DATE-END']) # start date
         bin_counts.append(header['COUNTGRP']) # min number of counts in the bins
-        tot_counts.append(header['COUNTS'])
-        exp.append(header['EXPOSURE']) # exposure length
-
+        tot_counts.append(header['COUNTS']) #... should be same as s.rate[0] * s.exposure
+        exp.append(header['EXPOSURE']) # exposure length... same as s.exposure
     # Convert dates to MJDs
     obs_mjds = iso2mjd(np.array(obs_isots)) 
+    end_obs_mjds = iso2mjd(np.array(end_obs_isots)) 
 
-    tot_counts = np.array(tot_counts)
-    obs_isots = np.array(obs_isots) 
 
-    # Filtering
-    # We do not want to fit the observations identified as uplims from the lightcurve generation
+    # Order lists by time
+    sort_index = np.argsort(obs_mjds)
+    spectral_files = np.array(spectral_files)[sort_index]
+    obs_isots = np.array(obs_isots)[sort_index]
+    obs_mjds = obs_mjds[sort_index]
+    end_obs_isots = np.array(end_obs_isots)[sort_index]
+    end_obs_mjds = end_obs_mjds[sort_index]
+    bin_counts = np.array(bin_counts)[sort_index]
+    tot_counts = np.array(tot_counts)[sort_index]
+    exp = np.array(exp)[sort_index]
+    
+    # Also get other parameters of interest
+    IDs = np.array([sf[14:-8] for sf in spectral_files])
+    mode = np.array([file[-10:-8] for file in spectral_files]) # PC or WT
+    cstat = np.array([True if tot_count==1 else False for tot_count in tot_counts])
+
+    # Filtering -- ignore spectra with very low counts
+    # We do not want to fit the observations identified as uplims from the lightcurve generation (as we deal with these separately)
     # We also decide to not fit WT observations with fewer than 15 counts (as these are probably spurious)
     # Also do not fit PC observations with fewer than 3 counts
-    IDs = np.array([sf[14:-8] for sf in spectral_files])
+    # Lastly, we do not fit observations where
+    # The 'good' boolean is specified above
     mask_detections = np.array([False if ID in uplim_files else True for ID in IDs])
     mask_valid = ((mode == 'pc') & (tot_counts >= 3)) | ((mode == 'wt') & (tot_counts >= 15))
     mask = mask_detections & mask_valid 
-    
-    # Apply filtering, and re-order lists by time
-    sort_index = np.argsort(obs_isots[mask])
-    obs_isots = np.array(obs_isots)[mask][sort_index].tolist()
-    obs_mjds = obs_mjds[mask][sort_index].tolist()
-    spectral_files = np.array(spectral_files)[mask][sort_index].tolist()
-    bin_counts = np.array(bin_counts)[mask][sort_index].tolist()
-    tot_counts = tot_counts[mask][sort_index].tolist()
-    exp = np.array(exp)[mask][sort_index].tolist()
-    mode = mode[mask][sort_index]
-    IDs = IDs[mask][sort_index].tolist()
 
+    # Print out obs_isot, obs_mjds, IDs, counts, exp [s] for the ignored spectra
+    xrt_dict_no_fit = {"obs_isot": obs_isots[~mask],"obs_mjds": obs_mjds[~mask],"IDs": IDs[~mask],"counts": tot_counts[~mask],"exp": exp[~mask]}
+    df = pd.DataFrame(xrt_dict_no_fit)
+    df.to_string(folder+"not_fit.txt", index=False, justify="left")
 
-    ##TODO: Can also add the ctats column from the start
-    
+    # Get the parameters for the observations that we will fit
+    spectral_files = spectral_files[mask]
+    obs_isots = obs_isots[mask]
+    obs_mjds = obs_mjds[mask]
+    end_obs_isots = end_obs_isots[mask]
+    end_obs_mjds = end_obs_mjds[mask]
+    bin_counts = bin_counts[mask]
+    tot_counts = tot_counts[mask]
+    exp = exp[mask]
+    IDs = IDs[mask]
+    mode = mode[mask]
+    cstat = cstat[mask]
+
 
     # Initialise dictionary to hold results
-    xrt_dict = {model: {"IDs": IDs, "obs_isot": obs_isots, "obs_mjds": obs_mjds, "counts": tot_counts, "exp [s]":exp, "cstat?":[], "chi2": [], "dof": [], "redchi2": []} for model in models}
+    xrt_dict = {model: {"IDs": IDs.tolist(), "isot_i": obs_isots.tolist(), "mjd_i": obs_mjds.tolist(), "mjd_f": end_obs_mjds.tolist(), "exp [s]": exp.tolist(), "counts": tot_counts.tolist(), "cstat?":cstat.tolist(), "chi2": [], "dof": [], "redchi2": []} for model in models}
 
     ## Iterate through each spectrum (i.e. each observation), fit it, get the fit parameters, and then save these.
     # AllData: container for all loaded data sets (objects of class Spectrum).
@@ -317,6 +355,10 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
         AllData.notice(f'*:{low_energy_fit_bound_keV}-10.0') # so that edge points are used
         AllData.ignore('bad') # ignore data that is bad -- using the quality column
 
+        # If too much data is ignored, the spectrum won't fit 
+        # Also print out a warning 
+        if (len(AllData(1).ignored) == len(AllData(1).noticed)): print("ERROR: too much bad data")
+
         # Choose whether to use chi-squared or cash statistics, based on the number of bins in the data
         # statMethod: type of statistic to minimise 
         # Chi-squared stats assumes that all the spectral channels are Gaussian distributed and that the estimate for the variance is uncorrelated with the observed counts.
@@ -334,22 +376,19 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
         # 1: nH (10^{22} atoms/cm^2); 2: photon index; 3: lower peg energy range (keV); 4: upper peg energy range (keV); 5: norm i.e. flux (10^{-12} ergs/cm^2/s)
         AllModels.clear()
         mod1 = Model('tbabs * pegpwrlw')
-        mod1.setPars({1:'0.2 -1', 2:'2.0 -1', 3:f'{low_energy_fit_bound_keV}', 4:10.0, 5:'1000.0'})
+        mod1.setPars({1:'0.2 -1', 2:'2.0 -1', 3:1.0, 4:10.0, 5:'1000.0'})
         Fit.delta = 1e-2 # controls the convergence criterion for the fitting algorithm
         try: 
             Fit.perform()
             flux_guess = mod1.pegpwrlw.norm.values[0] # flux (in units of 10^{-12} ergs/cm^2/s)
-        except: flux_guess = 1 # faint data
+        except: flux_guess = 1 # faint data... i.e. assume flux = 1 * 10^{-12} ergs/cm^2/s
 
 
         ## Iterate through the model versions, fitting each type, and appending the results to an output dictionary
-        mod_2 = False
+        mod_2 = False # whether the second model succeeded in the 2-step model approach
         for mod_name in models:
 
             print('\n', mod_name)
-
-            if bin_counts[k] == 1: xrt_dict[mod_name]['cstat?'].append(True)
-            else: xrt_dict[mod_name]['cstat?'].append(False)
 
             AllModels.clear() # AllModels represents the collection of all currently defined models in the XSPEC session
 
@@ -357,10 +396,10 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
             mod, initial_pars = initialise_model(mod_name, flux_guess, fix_names, fix_values)
             mod_obj = Model(mod)
             mod_obj.setPars(initial_pars) # set the parameters to the initial parameters specified in the initialisation
-            AllModels.systematic = 0.03 # add systematic error
+            if add_systematic: AllModels.systematic = 0.03 # add systematic error
             AllModels.show() # for checking
 
-            # Do not fit if tot_counts is less than count_threshold, and the fit parameters haven't been fixed
+            # Do not fit if tot_counts is less than count_threshold plus the fit parameters haven't been fixed
             fit = True
             if tot_counts[k] < count_threshold:
                 if "nh" not in fix_names:
@@ -386,6 +425,7 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
                     # 2-step powerlaw+diskbb
                     # Note that there is no 'editmod' in pyxspec
                     # I am fixing nH, gamma, Tin for the second run because I have noticed that when the powerlaw component is so much less dominant than the diskbb one, the cflux convolution does not retain similar values for the parameters.
+                    # I checked that fixing them doesn't make much difference to the flux uncertainty
                     ## TODO: In the future, if I am interested in the nH, gamma, and Tin unc, I cannot fix them, as I do not get the uncertainty. It seemed like normalising the normalisation may fix the issue?
                     if mod_name == "powerlaw+diskbb":
                         # Get best-fit parameters and pass to initialise_model
@@ -394,15 +434,15 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
                         "gamma": f'{mod_obj.powerlaw.PhoIndex.values[0]} -1',  # I'm fixing it because of issues with cflux in some cases
                         "Tin": f'{mod_obj.diskbb.Tin.values[0]} -1', # I'm fixing it because of issues with cflux in some cases  
                         "norm1": f'{mod_obj.powerlaw.norm.values[0]} -1', # fix the first normalisation
-                        "norm2": f'{mod_obj.diskbb.norm.values[0]}'
+                        "norm2": f'{mod_obj.diskbb.norm.values[0]} -1'
                         }
                         AllModels.clear()
                         mod, initial_pars = initialise_model("cflux_(powerlaw+diskbb)", flux_guess, fix_names, fix_values, parameters)
                         mod_obj = Model(mod)
                         mod_obj.setPars(initial_pars) # set the parameters to the initial parameters specified in the initialisation
-                        AllModels.systematic = 0.03 # add systematic error
+                        if add_systematic: AllModels.systematic = 0.03 # add systematic error
                         mod_2 = True 
-                        AllModels.show() # for checking
+                        #AllModels.show() # for checking
                         Fit.delta = 1e-5
                         Fit.perform()
 
@@ -427,10 +467,11 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
 
                 try:
                     # Determine the confidence intervals of a fit (FitManager), i.e. get the parameter errors
-                    # Note, the default is to estimate the 90% confidence ranges for all parameters
+                    # Note, the default is to estimate the 90% confidence ranges for all parameters. 
+                    # If we put "1.0", this indicates that we want 68% uncertainty.
                     # The maximum keyword ensures that error will not be run if the reduced chi-squared of the best fit exceeds <redchi>. The default value for <redchi> is 2.0. We set it a bit higher.
                     n_params = mod_obj.nParameters
-                    Fit.error(f'maximum 3.0 nonew 1-{n_params}') 
+                    Fit.error(f'maximum 3.0 nonew 1.0 1-{n_params}') 
                     print("Fit error calculation succeeded.")
 
                     for comp_name in mod_obj.componentNames: # Iterate through components, e.g. diskbb
@@ -451,7 +492,7 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
                     print("Fit error calculation failed.")
                     fit = False
 
-            if not fit:
+            if not fit: # fit was not performed or failed
                 for comp_name in mod_obj.componentNames:
                     comp = getattr(mod_obj, comp_name)
                     for par_name in comp.parameterNames:
@@ -473,11 +514,6 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
         print("------------------------------------------------------------")
 
     # Save the results dictionary
-    folder = './spectral_fit_results'
-    if fixing: folder+='_fixing'
-    folder+='/'
-    if not os.path.exists(folder):
-        os.makedirs(folder)
     with open(folder+'xrt_spectral_dict.json', 'w') as j:
         json.dump(xrt_dict, j, indent = 4)      
 

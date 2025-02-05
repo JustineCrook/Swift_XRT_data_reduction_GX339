@@ -4,7 +4,7 @@
 
 from get_xrt_from_pipeline import get_xrt_prods, group_spectra
 from fit_xrt_spectra import run_spectral_fit
-from get_results import plot_lightcurve_and_hr, get_results, plot_all_spectral_fit_results, plot_spectral_results, get_index_range
+from get_results import plot_lightcurve_and_hr, get_results, plot_all_spectral_fit_results, plot_spectral_results, get_index_range, f_test
 import subprocess
 import glob
 import os
@@ -12,7 +12,7 @@ import sys
 sys.path.append(os.path.abspath("./uplims_analysis"))
 from calculate_uplims import uplims_runner
 import numpy as np
-from input_parameters import analysis_type,target_coords,target_names,target_ids,segments_lc,segments_spec,MJD_range,models,nH,gamma,low_count_indexes,fix,uplims_IDs,uplims_count_rate_ar,uplims_MJDs,uplims_MJDs_er,uplims_fluxes,models_indexes,low_energy_fit_bound_keV
+from input_parameters import analysis_type,target_coords,target_names,target_ids,segments_lc,segments_spec,MJD_range,models,nH,gamma,low_count_indexes,fix,uplims_IDs,uplims_count_rate_ar,uplims_MJDs,uplims_MJDs_er,uplims_fluxes,models_indexes,min_E_keV,min_counts_chi, simple_model, complex_model 
 
 """
 Order in which to run:
@@ -40,10 +40,9 @@ if __name__ in "__main__":
 
     print("Analysis type: ",  analysis_type)
 
-    
-    ## STEP 1
+
     ## GET LIGHTCURVES & SPECTRA
-    if analysis_type=="step1": 
+    if analysis_type=="get_data": 
 
         # Iterate through Target name(s), id(s), and segments and get xrt_prods
         
@@ -62,42 +61,49 @@ if __name__ in "__main__":
             except:
                 print("Error getting spectrum.")
             print("-------------------------------------------------------------------------------------------------------")
-        
+
+
+    ## RE-BIN THE SPECTRA
+    if analysis_type=="group_spectra":
         # Group the spectra -- required before running spectral fits
-        group_spectra()
+        group_spectra(min_E_keV , min_counts_chi)
         
-    
-    ## STEP 2 
+  
     ## PLOT THE LIGHT CURVE AND HARDNESS RATIO
-    elif analysis_type=="step2": 
+    elif analysis_type=="plot_lightcurve_and_hr": 
         plot_lightcurve_and_hr() 
 
-    ## STEP 3
-    ## FIT THE SPECTRA AND GET INITIAL SPECTRAL FIT RESULTS
-    elif analysis_type=="step3": 
-        run_spectral_fit(models, uplims_IDs, low_energy_fit_bound_keV, fix={}) # fit the spectra
+
+    ## FIT THE SPECTRA WITH NO FIXED PARAMETERS, AND GET INITIAL SPECTRAL FIT RESULTS
+    elif analysis_type=="uncontrained_fit": 
+        run_spectral_fit(models, uplims_IDs, min_E_keV, fix={}) # fit the spectra
         get_results(models, fixing=False) # output the fit results
         plot_all_spectral_fit_results(models, fixing=False) # plot all the fit results
 
-    ## STEP 4
+
+    elif analysis_type=="f_test":
+        f_test(simple_model, complex_model, fixing=True)
+
+
     ## GET THE PARAMETER VALUES FROM THE SPECTRAL RESULTS, BASED ON CHOSEN MODELS
-    elif analysis_type=="step4": 
+    elif analysis_type=="get_param_averages": 
         get_results(models, models_indexes, fixing=False)
 
     ## STEP 5
     ## FIT THE SPECTRA AND GET SPECTRAL FIT RESULTS -- WITH PARAMETERS TO FIX
-    elif analysis_type=="step5": 
-        run_spectral_fit(models, uplims_IDs, low_energy_fit_bound_keV, fix=fix) # fit the spectra
+    elif analysis_type=="constrained_fit": 
+        run_spectral_fit(models, uplims_IDs, min_E_keV , fix=fix) # fit the spectra
         get_results(models, fixing=True) # output the fit results
+        ##TODO: Add plotting of all results here too, for comparing them?
 
     ## STEP 6
     ## GET THE UPPER LIMIT FLUX VALUES
-    elif analysis_type=="step6": 
+    elif analysis_type=="get_uplims": 
         uplims_runner(uplims_IDs, uplims_count_rate_ar, target_coords, nH, gamma)
 
     ## STEP 7
     ## GET THE FINAL RESULTS, BASED ON CHOSEN MODELS
-    elif analysis_type=="step7": 
+    elif analysis_type=="get_final_results": 
         plot_spectral_results(models, models_indexes, uplims_IDs, uplims_MJDs, uplims_MJDs_er, uplims_fluxes, fixing=True)
 
 

@@ -19,6 +19,7 @@ import scipy.special
 from astropy.constants import c
 from astropy.table import Table
 from astropy.io import fits
+from scipy import stats
 #from PyDynamic import interp1d_unc
 #rom scipy.interpolate import interp1d
 import pandas as pd
@@ -202,7 +203,7 @@ def get_lightcurve_data(verbose=True):
         print("Only upper limits were obtained for some observations:")
         print("MJDs for upper limits: \n" +  np.array2string(time_uplims, separator=","))
         print("UTC for upper limits: \n" + np.array2string(time_uplims_utc, separator=","))
-        print("Exposure [MJD] for upper limits \n" +  np.array2string(exp_uplims, separator=","))
+        print("Observation duration [MJD] for upper limits \n" +  np.array2string(exp_uplims, separator=","))
         print("Observation type for the upper limits: \n" + np.array2string(obs_type_uplims, separator=","))
         print("Count rates [counts/s] for the upper limits: \n" + np.array2string(cps_uplims, separator=","))
         print("Get the obsIDs for the upper limits from the following website: https://www.swift.psu.edu/operations/obsSchedule.php")
@@ -286,17 +287,84 @@ def plot_lightcurve_and_hr():
 ####################################################################################################################
 ## SPECTRAL RESULTS FUNCTIONS
 
-def plot_parameter(t, param_values, param_name, avg, weighted_avg, mod_name):
+
+# Statistical test to see whether extra complexity is justified
+# Note that if I am using the 2-step cflux approach and fixing the parameters in the second run, this gives the incorrect #dof
+def f_test(simple_model, complex_model, fixing):
+
+     # Load JSON data from file
+    filename = './spectral_fit_results'
+    if fixing: filename+='_fixing'
+    filename+='/'
+    json_path = filename+"xrt_spectral_dict.json"
+    with open(json_path, 'r') as file:
+        data = json.load(file)
+
+    # Output text file
+    f = open(filename+"f_test_results.txt", "w")
+
+    # Simple model
+    df1 = pd.DataFrame(data[simple_model])
+    ID = df1["IDs"].to_numpy()
+    chi1 = df1["chi2"].to_numpy()
+    dof1 = df1["dof"].to_numpy()
+
+    # Complex model
+    df2 = pd.DataFrame(data[complex_model])
+    chi2 = df2["chi2"].to_numpy()
+    dof2 = df2["dof"].to_numpy()
+
+
+    for i, (ID, chi1, dof1, chi2, dof2) in enumerate(zip(ID, chi1, dof1, chi2, dof2 )):
+        
+        f.write(f"{i} ID = {ID}: ")
+
+        chidiff = chi1 - chi2
+        dofdiff = dof1 - dof2
+
+        if chi1==-1 and chi2==-1:
+            f.write("Neither fit works.")
+        elif chi1==-1:
+            f.write(f"{complex_model} is preferred; chi^2/dof = {chi2/dof2:.5f} \n")
+        elif chi2==-1:
+            f.write(f"{simple_model} is preferred; chi^2/dof = {chi1/dof1:.5f}\n")
+        
+        elif dofdiff==0:
+            f.write(f"same #dof ; {simple_model} chi^2/dof = {chi1/dof1:.5f} ; {complex_model} chi^2/dof = {chi2/dof2:.5f} \n")
+
+
+        else: # both models succeeded in fitting, and have different numbers of dof
+        # Test to see whether the added complexity of complex_model is statistically justified
+            
+            mystat = 1. - stats.chi2.cdf(chidiff, dofdiff)
+
+            F = (chi1 - chi2) / chi2 * (dof2 / dofdiff)
+            p_value = 1 - stats.f.cdf(F, dofdiff, dof2)
+
+            if p_value < 0.001: # the added complexity is statistically justified
+                f.write(f"{complex_model} is preferred; chi^2/dof = {chi2/dof2:.5f}\n")
+            else:
+                f.write(f"{simple_model} is preferred; chi^2/dof = {chi1/dof1:.5f}\n")
+
+    f.close()
+
+
+def plot_parameter(t, param_values, er_neg, er_pos, param_name, avg, weighted_avg, mod_name, fixing):
+
+    filename = './spectral_fit_results'
+    if fixing: filename+='_fixing'
+    filename+='/'
 
     # parameter as a function of time
     plt.figure(figsize=(20, 10))
-    plt.scatter(t, param_values, s = 3, color="blue")
+    #plt.scatter(t, param_values, s = 3, color="blue")
+    plt.errorbar(t, param_values, yerr = [er_neg, er_pos], fmt='.', color="blue", markersize=3)
     plt.ylabel(param_name)
     plt.xlabel("MJD")
     plt.axhline(avg, color='red', linestyle='--', linewidth=1.5, label=f'Mean = {avg:.4f}')
     if weighted_avg!=None: plt.axhline(weighted_avg, color='green', linestyle='--', linewidth=1.5, label=f'Weighted mean = {weighted_avg:.4f}')
     plt.legend()
-    plt.savefig(f"./spectral_fit_results/{param_name}_time_series_{mod_name}.png")
+    plt.savefig(f"{filename}{param_name}_time_series_{mod_name}.png")
 
     # parameter distribution
     plt.figure(figsize=(12, 10))
@@ -306,7 +374,7 @@ def plot_parameter(t, param_values, param_name, avg, weighted_avg, mod_name):
     plt.xlabel(param_name)
     plt.ylabel('Frequency')
     plt.legend()
-    plt.savefig(f"./spectral_fit_results/{param_name}_distribution_{mod_name}.png")
+    plt.savefig(f"{filename}{param_name}_distribution_{mod_name}.png")
 
 
 ## Print the spectral fit results (json file) to a txt file in table format.
@@ -335,7 +403,7 @@ def get_results(models, models_indexes=[], count_threshold = 50, fixing=False):
     for i, model_name in enumerate(models): 
 
         df = pd.DataFrame(data[model_name])
-        df = df[['obs_isot'] + ['obs_mjds']+ [col for col in df.columns if col != 'obs_isot' and col!='obs_mjds']]
+        df = df[['isot_i'] + ['mjd_i']+ ['mjd_f'] + [col for col in df.columns if col != 'isot_i' and col!='mjd_i' and col!='mjd_f']]
         dataframes.append(df)
 
         if i==0: # i.e. first model, print the low-count spectra
@@ -353,8 +421,8 @@ def get_results(models, models_indexes=[], count_threshold = 50, fixing=False):
         f.write(df.to_string(index=True))
         f.write("\n")
 
-        # Mask when index ranges are specified
-        length = len(df['obs_mjds'])
+        # Mask when index ranges are specified for this model
+        length = len(df['isot_i'])
         try: 
             model_range = models_indexes[i]
             mask_filter = np.full(length, False)
@@ -374,8 +442,8 @@ def get_results(models, models_indexes=[], count_threshold = 50, fixing=False):
         ## Filter the dataframe
         mask = mask_filter & mask_valid
         filtered_df = df[mask]
-        t = filtered_df['obs_mjds'].to_numpy()
-        parameters = ['nH'] + [col for col in ['PhoIndex', 'Tin'] if col in filtered_df.columns]
+        t = filtered_df['mjd_i'].to_numpy()
+        parameters = ['nH'] + [col for col in ['PhoIndex', 'Tin'] if col in filtered_df.columns] # list of relevant parameter names
 
         true_indexes = np.where(mask)[0]
         f.write("Indexes used for calculating parameters: \n" + np.array2string(true_indexes, separator=",") + "\n")
@@ -389,12 +457,16 @@ def get_results(models, models_indexes=[], count_threshold = 50, fixing=False):
             avg = values.mean()
             f.write(f"Average {parameter}: {avg}\n") 
 
+            er_neg = filtered_df[parameter+"_neg"].to_numpy()
+            er_pos = filtered_df[parameter+"_pos"].to_numpy()
+
             # Do weighted average
             weighted_avg = None
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 try: # will only work if some of the paramert values haven't been fixed
-                    weighted_avg = np.average(filtered_df[parameter], weights = np.amax((filtered_df[f'{parameter}_neg'], filtered_df[f'{parameter}_pos']), axis=0).astype(float) **(-2)) # Computes the weighted average of nh, using the inverse square of the maximum uncretainty values as the weights
+                    # Compute the weighted average of nh, using the inverse square of the maximum uncertainty values as the weights
+                    weighted_avg = np.average(filtered_df[parameter], weights = np.amax((filtered_df[f'{parameter}_neg'], filtered_df[f'{parameter}_pos']), axis=0).astype(float) **(-2)) 
                     neg_er = np.sum(filtered_df[f'{parameter}_neg'].astype(float) ** (-2)) ** (-0.5)
                     pos_er = np.sum(filtered_df[f'{parameter}_pos'].astype(float) ** (-2)) ** (-0.5)
                     # (Note: I could also propagate into this the uncertainty due to the variance of the results)
@@ -403,7 +475,7 @@ def get_results(models, models_indexes=[], count_threshold = 50, fixing=False):
                     f.write(f"Weighted average of {parameter} not calculated.")
 
             # Plotting results
-            plot_parameter(t, values, parameter, avg, weighted_avg, model_name)
+            plot_parameter(t, values, er_neg, er_pos, parameter, avg, weighted_avg, model_name, fixing)
         
         f.write("\n\n")  
 
@@ -440,12 +512,17 @@ def plot_spectral_results(models, models_indexes=[], uplims_IDs=[], uplims_MJDs=
         for keyi in xrt_fit_dict[key].keys():
             xrt_fit_dict[key][keyi] = np.array(xrt_fit_dict[key][keyi])
 
-    all_dates_MJD_start= xrt_fit_dict[models[0]]['obs_mjds'] # all the models have the same MJDs; this is the start MJD
-    all_exposures_MJD = xrt_fit_dict[models[0]]['exp [s]']/(24*60*60)
-    all_dates_MJD = all_dates_MJD_start + 0.5*all_exposures_MJD # middle MJD
+    all_dates_MJD_start= xrt_fit_dict[models[0]]['mjd_i'] # all the models have the same MJDs; this is the start MJD
+    all_dates_MJD_end = xrt_fit_dict[models[0]]['mjd_f'] # all the models have the same MJDs; this is the end MJD
+    
+    all_dt_MJD = all_dates_MJD_end - all_dates_MJD_start
+    all_dates_MJD = 0.5*(all_dates_MJD_start + all_dates_MJD_end) # middle MJD
+
+    all_dt_MJD_alt = xrt_fit_dict[models[0]]['exp [s]']/(24*60*60)
+    all_dates_MJD_alt = all_dates_MJD_start + 0.5*all_dt_MJD_alt # middle MJD
 
     if models_indexes!=[]: # Initialise dataframe to store final results
-        df = pd.DataFrame(columns=["obs_id", "middle_mjds", "mjd_range", "flux", "flux_er_neg", "flux_er_pos", "uplims", "model", "cstat_bool"])
+        df = pd.DataFrame(columns=["obs_id", "middle_mjds", "mjd_range", "flux", "flux_er_neg", "flux_er_pos", "uplims", "model", "cstat_bool", "redchi2"])
 
     # Make the plot
     fig, ax = plt.subplots(5, figsize=(20,17), sharex='col', gridspec_kw={'hspace': 0.1})#, 'height_ratios': [1.0, 0.4, 1.0, 1.0, 0.4,]})
@@ -481,7 +558,7 @@ def plot_spectral_results(models, models_indexes=[], uplims_IDs=[], uplims_MJDs=
         print()
 
         dates_MJD = all_dates_MJD[mask] # middle MJD
-        exposures = all_exposures_MJD[mask]
+        exposures = all_dt_MJD[mask]
 
         data = xrt_fit_dict[model]
         
@@ -506,7 +583,8 @@ def plot_spectral_results(models, models_indexes=[], uplims_IDs=[], uplims_MJDs=
             "flux_er_pos": flux_pos,
             "uplims": np.nan,
             "model": model,
-            "cstat_bool": data['cstat?'][mask]
+            "cstat_bool": data['cstat?'][mask],
+            "redchi2": data['redchi2'][mask]
             })], ignore_index=True)
 
 
@@ -546,7 +624,8 @@ def plot_spectral_results(models, models_indexes=[], uplims_IDs=[], uplims_MJDs=
             "flux_er_pos": np.nan,
             "uplims": uplims_fluxes,
             "model": None,
-            "cstat_bool": None
+            "cstat_bool": None,
+            "redchi2": None
             })], ignore_index=True)
 
 

@@ -206,7 +206,7 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
 
 
 
-def group_spectra():
+def group_spectra(min_E_keV = 0.5, min_counts_chi = 25):
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
     # Prepare spectral data for spectral fitting #
@@ -217,12 +217,10 @@ def group_spectra():
     # We could use one of the grouping packages (like grppha or ftgrouppha), but here we use the custom grouping code by Sivakoff.
 
     print("-------------------------------------------------------------------------------------------------------")
-    print("-------------------------------------------------------------------------------------------------------")
-    print("-------------------------------------------------------------------------------------------------------")
-    print("-------------------------------------------------------------------------------------------------------")
-    print("-------------------------------------------------------------------------------------------------------")
     print("Prepare spectral data")  
     print()
+
+    min_E = min_E_keV*1e3 # eV
 
     # Get the current working directory
     spectrum_directory = os.getcwd()+ '/spectra'
@@ -263,12 +261,12 @@ def group_spectra():
         # Run Sivakoff GRPPHA to group together the counts (i.e. group the spectra)
         # i: input pi file
         # o: output (grouped) pi file
-        # l: minimum energy of first bin in eV
+        # l: minimum energy of first bin in eV -- default is 500eV
         # u: maximum energy of first bin in eV
-        # c: minimum counts per bin
+        # c: minimum counts per bin, when ncounts>300 -- default is 25
         # e: minimum energy change per bin in eV or fraction
         # This creates a file Obs{obsID&obsType}final.pi
-        syscall = f'python3 new_grppha.py -i {group_spectrum} -o {final_spectrum} -l 500 -u 10000 -c 25 -e 0.0'
+        syscall = f'python3 new_grppha.py -i {group_spectrum} -o {final_spectrum} -l {min_E} -u 10000 -c {min_counts_chi} -e 0.0' 
         subprocess.run([syscall], shell = True)   
 
         print("----------------------------------------------------------------------------------------------")
