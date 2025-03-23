@@ -32,9 +32,9 @@ test2.ipynb
 test3.ipynb
 website_lightcurve.txt
 website.ipynb
-WT.fit_results_pow_bb_JAKOB.dat
-WT.fit_results_pow_JAKOB.dat
 PC.fit_results_pow.dat
+failed_retrieval.txt
+NOTES.txt
 
 # Ignore specific directories
 __pycache__/
@@ -66,3 +66,9 @@ testing/
 TESTING/
 run_files/
 xspec_files/
+LILIA_COMPARISON/
+OLD_RESULTS/
+simultaneous_spectra_test/
+TESTING_GROUPING/
+TESTING_notebooks/
+testing_pileup_manual/

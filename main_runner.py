@@ -12,7 +12,7 @@ import sys
 sys.path.append(os.path.abspath("./uplims_analysis"))
 from calculate_uplims import uplims_runner
 import numpy as np
-from input_parameters import analysis_type,target_coords,target_names,target_ids,segments_lc,segments_spec,MJD_range,models,nH,gamma,low_count_indexes,fix,uplims_IDs,uplims_count_rate_ar,uplims_MJDs,uplims_MJDs_er,uplims_fluxes,models_indexes,min_E_keV,min_counts_chi, simple_model, complex_model 
+from input_parameters import analysis_type,target_coords,target_names,target_ids,segments_lc,segments_spec,MJD_range,models_unconstrained,models_constrained,nH,gamma,low_count_indexes,fix,uplims_IDs,uplims_count_rate_ar,uplims_MJDs,uplims_MJDs_er,uplims_fluxes,models_indexes,min_E_keV,min_counts_chi, simple_model, complex_model, models_indexes_av
 
 """
 Order in which to run:
@@ -64,39 +64,39 @@ if __name__ in "__main__":
 
 
     ## RE-BIN THE SPECTRA
-    if analysis_type=="group_spectra":
+    elif analysis_type=="group_spectra":
         # Group the spectra -- required before running spectral fits
         group_spectra(min_E_keV , min_counts_chi)
         
   
     ## PLOT THE LIGHT CURVE AND HARDNESS RATIO
-    elif analysis_type=="plot_lightcurve_and_hr": 
+    elif analysis_type=="plot_lc_and_hr": 
         plot_lightcurve_and_hr() 
 
 
     ## FIT THE SPECTRA WITH NO FIXED PARAMETERS, AND GET INITIAL SPECTRAL FIT RESULTS
-    elif analysis_type=="uncontrained_fit": 
-        run_spectral_fit(models, uplims_IDs, min_E_keV, fix={}) # fit the spectra
-        get_results(models, fixing=False) # output the fit results
-        plot_all_spectral_fit_results(models, fixing=False) # plot all the fit results
+    elif analysis_type=="unconstrained_fit": 
+        run_spectral_fit(models_unconstrained, uplims_IDs, min_E_keV, fix={}) # fit the spectra
+        get_results(models_unconstrained, fixing=False) # output the fit results
+        plot_all_spectral_fit_results(models_unconstrained, fixing=False) # plot all the fit results
 
-
-    elif analysis_type=="f_test":
-        f_test(simple_model, complex_model, fixing=True)
 
 
     ## GET THE PARAMETER VALUES FROM THE SPECTRAL RESULTS, BASED ON CHOSEN MODELS
     elif analysis_type=="get_param_averages": 
-        get_results(models, models_indexes, fixing=False)
+        get_results(models_unconstrained, models_indexes_av, fixing=False)
 
-    ## STEP 5
+
     ## FIT THE SPECTRA AND GET SPECTRAL FIT RESULTS -- WITH PARAMETERS TO FIX
     elif analysis_type=="constrained_fit": 
-        run_spectral_fit(models, uplims_IDs, min_E_keV , fix=fix) # fit the spectra
-        get_results(models, fixing=True) # output the fit results
+        run_spectral_fit(models_constrained, uplims_IDs, min_E_keV , fix=fix) # fit the spectra
+        get_results(models_constrained, models_indexes, fixing=True) # output the fit results
         ##TODO: Add plotting of all results here too, for comparing them?
 
-    ## STEP 6
+    elif analysis_type=="f_test":
+        f_test(simple_model, complex_model, fixing=True)
+
+  
     ## GET THE UPPER LIMIT FLUX VALUES
     elif analysis_type=="get_uplims": 
         uplims_runner(uplims_IDs, uplims_count_rate_ar, target_coords, nH, gamma)
@@ -104,8 +104,8 @@ if __name__ in "__main__":
     ## STEP 7
     ## GET THE FINAL RESULTS, BASED ON CHOSEN MODELS
     elif analysis_type=="get_final_results": 
-        plot_spectral_results(models, models_indexes, uplims_IDs, uplims_MJDs, uplims_MJDs_er, uplims_fluxes, fixing=True)
-
+        plot_spectral_results(models_constrained, models_indexes, uplims_IDs, uplims_MJDs, uplims_MJDs_er, uplims_fluxes, fixing=True)
+  
 
     ## HELPER FUNCTIONS 
     ## GET THE INDEX RANGE

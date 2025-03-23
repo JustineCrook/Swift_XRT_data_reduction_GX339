@@ -47,7 +47,7 @@ def get_xrt_prods(target_id, target_name, target_coords, segments, centroid = Tr
                         RA=target_coords[0],
                         Dec=target_coords[1],
                         centroid=centroid,
-                        useSXPS=False, 
+                        useSXPS=True, 
                         posErr=1)
 
     # ~~~~~~~~ #

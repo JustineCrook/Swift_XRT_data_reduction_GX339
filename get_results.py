@@ -27,6 +27,7 @@ pd.set_option('display.width', 1000)
 pd.set_option('display.max_columns', None)  
 import warnings
 mpl.pyplot.close()
+import shutil
 
 
 ####################################################################################################################
@@ -52,6 +53,10 @@ mpl.rcParams['xtick.minor.width'] = 1.5
 mpl.rcParams['xtick.major.size'] = 6.0
 mpl.rcParams['xtick.minor.size'] = 3.0
 mpl.rcParams['axes.linewidth'] = 1.5
+
+
+transitions1 = [58800,58950,59301,59485]
+transitions2 = [58800, 58920, 58958, 59295, 59310, 59480, 59492]
 
 
 ####################################################################################################################
@@ -252,24 +257,36 @@ def plot_lightcurve_and_hr():
     lc_mjd, lc_cps, lc_cps_nerr, lc_cps_perr, index_uplims, hr_mjd, hr, hr_err = get_lightcurve_data()
 
     # Set up figure
-    fig, ax = plt.subplots(2, figsize=(15,8),  sharex='col', gridspec_kw={'hspace': 0.1}) 
+    fig, ax = plt.subplots(2, figsize=(20,8),  sharex='col', gridspec_kw={'hspace': 0.1}) 
     fig.set_facecolor('white')
     ax = np.atleast_1d(ax)
 
     # Light curve
     # Data points:
-    ax[0].errorbar(Time(lc_mjd, format='mjd').datetime, lc_cps, yerr = [lc_cps_nerr, lc_cps_perr], fmt='o--', color='k') 
+    ax[0].errorbar(Time(lc_mjd, format='mjd').datetime, lc_cps, yerr = [lc_cps_nerr, lc_cps_perr], fmt='o--', color='k', ms=3) 
     # Upper limits:
-    ax[0].errorbar(Time(lc_mjd[index_uplims], format='mjd').datetime, lc_cps[index_uplims ], yerr = 0, fmt='v', color='k', zorder=1000, mec='k', ms = 10, mew=2, mfc='white') 
+    ax[0].errorbar(Time(lc_mjd[index_uplims], format='mjd').datetime, lc_cps[index_uplims ], yerr = 0, fmt='v', color='k', zorder=1000, mec='k', ms = 3, mew=2, mfc='white') 
     ax[0].set_ylabel('$Swift$-XRT Count Rate\n(count s$^{-1}$)')
+    
+    for t in transitions1: # transition points
+        ax[0].axvline(Time(t, format='mjd').datetime, color='yellow', linestyle='--', linewidth=1.5, label="Transitions1")
+    for t in transitions2: # transition points
+        ax[0].axvline(Time(t, format='mjd').datetime, color='purple', linestyle='--', linewidth=1.5, label="Transitions2")
     ax[0].set_yscale('log')
 
     # Hardness ratio
     # Filter the array to only include values where the error is low
     mask= hr_err <= 0.05
-    ax[1].errorbar(Time(hr_mjd[mask], format='mjd').datetime, hr[mask], yerr =hr_err[mask], fmt='o--', color='k')
+    ax[1].errorbar(Time(hr_mjd[mask], format='mjd').datetime, hr[mask], yerr =hr_err[mask], fmt='o--', color='k', ms=3)
     ax[1].set_ylabel('$Swift$-XRT HR \n[2-10 keV]/[0.5-2 keV]')
-    ax[1].set_ylim(-0.2, 0.7)
+    for t in transitions1: # transition points
+        ax[1].axvline(Time(t, format='mjd').datetime, color='yellow', linestyle='--', linewidth=1.5)
+    for t in transitions2: # transition points
+        ax[1].axvline(Time(t, format='mjd').datetime, color='purple', linestyle='--', linewidth=1.5)
+    #ax[1].set_ylim(-0.2, 0.7)
+
+
+    plt.legend()
 
     T = np.max(lc_mjd) - np.min(lc_mjd)
     dt = int(T/4)
@@ -277,7 +294,7 @@ def plot_lightcurve_and_hr():
     FormatAxis(ax, lc_mjd, interval = dt) # use helper function defined above
 
     # Save the figure
-    plots_dir = "./lightcurve_results/"
+    plots_dir = "./final_results/"
     if not os.path.exists(plots_dir):
         os.makedirs(plots_dir)
         print(f"{plots_dir } has been created.")
@@ -310,6 +327,7 @@ def f_test(simple_model, complex_model, fixing):
     dof1 = df1["dof"].to_numpy()
 
     # Complex model
+    # NOTE: with the 2-step model though, this ins't quite right
     df2 = pd.DataFrame(data[complex_model])
     chi2 = df2["chi2"].to_numpy()
     dof2 = df2["dof"].to_numpy()
@@ -335,10 +353,8 @@ def f_test(simple_model, complex_model, fixing):
 
         else: # both models succeeded in fitting, and have different numbers of dof
         # Test to see whether the added complexity of complex_model is statistically justified
-            
-            mystat = 1. - stats.chi2.cdf(chidiff, dofdiff)
-
-            F = (chi1 - chi2) / chi2 * (dof2 / dofdiff)
+    
+            F = (chidiff ) / chi2 * (dof2 / dofdiff)
             p_value = 1 - stats.f.cdf(F, dofdiff, dof2)
 
             if p_value < 0.001: # the added complexity is statistically justified
@@ -362,6 +378,10 @@ def plot_parameter(t, param_values, er_neg, er_pos, param_name, avg, weighted_av
     plt.ylabel(param_name)
     plt.xlabel("MJD")
     plt.axhline(avg, color='red', linestyle='--', linewidth=1.5, label=f'Mean = {avg:.4f}')
+    for t in transitions1: # transition points
+        plt.axvline(t, color='yellow', linestyle='--', linewidth=1.5)
+    for t in transitions2: # transition points
+        plt.axvline(Time(t, format='mjd').datetime, color='purple', linestyle='--', linewidth=1.5)
     if weighted_avg!=None: plt.axhline(weighted_avg, color='green', linestyle='--', linewidth=1.5, label=f'Weighted mean = {weighted_avg:.4f}')
     plt.legend()
     plt.savefig(f"{filename}{param_name}_time_series_{mod_name}.png")
@@ -457,14 +477,11 @@ def get_results(models, models_indexes=[], count_threshold = 50, fixing=False):
             avg = values.mean()
             f.write(f"Average {parameter}: {avg}\n") 
 
-            er_neg = filtered_df[parameter+"_neg"].to_numpy()
-            er_pos = filtered_df[parameter+"_pos"].to_numpy()
-
             # Do weighted average
             weighted_avg = None
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                try: # will only work if some of the paramert values haven't been fixed
+                try: # will only work if some of the parameter values haven't been fixed
                     # Compute the weighted average of nh, using the inverse square of the maximum uncertainty values as the weights
                     weighted_avg = np.average(filtered_df[parameter], weights = np.amax((filtered_df[f'{parameter}_neg'], filtered_df[f'{parameter}_pos']), axis=0).astype(float) **(-2)) 
                     neg_er = np.sum(filtered_df[f'{parameter}_neg'].astype(float) ** (-2)) ** (-0.5)
@@ -475,6 +492,14 @@ def get_results(models, models_indexes=[], count_threshold = 50, fixing=False):
                     f.write(f"Weighted average of {parameter} not calculated.")
 
             # Plotting results
+            # Use all values for range specified for this model, except those for fits that failed
+            mask_valid = (df['nH'] != -1) # model failed
+            mask = mask_filter & mask_valid
+            filtered_df = df[mask]
+            t = filtered_df['mjd_i'].to_numpy()
+            values = filtered_df[parameter].to_numpy()
+            er_neg = filtered_df[parameter+"_neg"].to_numpy()
+            er_pos = filtered_df[parameter+"_pos"].to_numpy()
             plot_parameter(t, values, er_neg, er_pos, parameter, avg, weighted_avg, model_name, fixing)
         
         f.write("\n\n")  
@@ -488,7 +513,7 @@ def get_results(models, models_indexes=[], count_threshold = 50, fixing=False):
 def plot_spectral_results(models, models_indexes=[], uplims_IDs=[], uplims_MJDs=[], uplims_MJDs_er=[], uplims_fluxes=[], fixing=False):
 
     mpl.rcParams['xtick.labelbottom'] = False
-    colours = ['blue', 'red', 'green']
+    colours = ['blue', 'red', 'green', 'purple']
 
     if not (len(uplims_IDs) == len(uplims_MJDs) == len(uplims_MJDs_er) == len(uplims_fluxes)):
         raise ValueError("The lengths of uplims_IDs, uplims_MJDs, uplims_MJDs_er, and uplims_fluxes must be the same.")
@@ -525,7 +550,8 @@ def plot_spectral_results(models, models_indexes=[], uplims_IDs=[], uplims_MJDs=
         df = pd.DataFrame(columns=["obs_id", "middle_mjds", "mjd_range", "flux", "flux_er_neg", "flux_er_pos", "uplims", "model", "cstat_bool", "redchi2"])
 
     # Make the plot
-    fig, ax = plt.subplots(5, figsize=(20,17), sharex='col', gridspec_kw={'hspace': 0.1})#, 'height_ratios': [1.0, 0.4, 1.0, 1.0, 0.4,]})
+    fig, ax = plt.subplots(6, figsize=(30,18), sharex='col', gridspec_kw={'hspace': 0.05})#, 'height_ratios': [1.0, 0.4, 1.0, 1.0, 0.4,]})
+    fig.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
 
     # HR
     # Filter the array to only include values where the error is low
@@ -559,6 +585,7 @@ def plot_spectral_results(models, models_indexes=[], uplims_IDs=[], uplims_MJDs=
 
         dates_MJD = all_dates_MJD[mask] # middle MJD
         exposures = all_dt_MJD[mask]
+        IDs = data['IDs'][mask]
 
         data = xrt_fit_dict[model]
         
@@ -575,7 +602,7 @@ def plot_spectral_results(models, models_indexes=[], uplims_IDs=[], uplims_MJDs=
 
         if models_indexes!=[]:
             df = pd.concat([df, pd.DataFrame({
-            "obs_id": data['IDs'][mask],
+            "obs_id": IDs,
             "middle_mjds": dates_MJD,
             "mjd_range": exposures,
             "flux": flux,
@@ -588,26 +615,60 @@ def plot_spectral_results(models, models_indexes=[], uplims_IDs=[], uplims_MJDs=
             })], ignore_index=True)
 
 
+        # nH
+        nH, nH_neg, nH_pos = data["nH"][mask], data["nH_neg"][mask], data["nH_pos"][mask]
+        ax[2].errorbar(Time(dates_MJD, format='mjd').datetime, nH, [nH_neg, nH_pos], fmt='o',color='k', mfc=colours[i])
+
+
+
         # Tin; only for models 'diskbb' and 'pegged_powerlaw+diskbb' and 'powerlaw+diskbb'
         if model=="diskbb" or model=="pegged_powerlaw+diskbb" or model=="powerlaw+diskbb": 
             Tin, Tin_neg, Tin_pos = data['Tin'][mask], data['Tin_neg'][mask], data['Tin_pos'][mask]
             fixed_mask = (Tin_neg == 0) & (Tin_pos == 0)  # plot square if parameter was fixed during fitting
-            ax[2].errorbar(Time(dates_MJD[fixed_mask], format='mjd').datetime, Tin[fixed_mask], [Tin_neg[fixed_mask], Tin_pos[fixed_mask]], fmt='s', color='k', mfc=colours[i])
-            ax[2].errorbar(Time(dates_MJD[~fixed_mask], format='mjd').datetime, Tin[~fixed_mask], [Tin_neg[~fixed_mask], Tin_pos[~fixed_mask]], fmt='o', color='k', mfc=colours[i])
+            ax[3].errorbar(Time(dates_MJD[fixed_mask], format='mjd').datetime, Tin[fixed_mask], [Tin_neg[fixed_mask], Tin_pos[fixed_mask]], fmt='s', color='k', mfc=colours[i])
+            ax[3].errorbar(Time(dates_MJD[~fixed_mask], format='mjd').datetime, Tin[~fixed_mask], [Tin_neg[~fixed_mask], Tin_pos[~fixed_mask]], fmt='o', color='k', mfc=colours[i])
 
         # Gamma; only for models 'pegged_powerlaw', 'powerlaw', 'powerlaw+diskbb', 'pegged_powerlaw+diskbb'
         if model=="powerlaw" or model=="pegged_powerlaw" or model=="powerlaw+diskbb" or model=="pegged_powerlaw+diskbb": 
             gamma, gamma_neg, gamma_pos = data['PhoIndex'][mask], data['PhoIndex_neg'][mask], data['PhoIndex_pos'][mask]
             fixed_mask = (gamma_neg == 0) & (gamma_pos == 0) # plot square if parameter was fixed during fitting
-            ax[3].errorbar(Time(dates_MJD[fixed_mask], format='mjd').datetime, gamma[fixed_mask], [gamma_neg[fixed_mask], gamma_pos[fixed_mask]], fmt='s', color='k', mfc=colours[i])
-            ax[3].errorbar(Time(dates_MJD[~fixed_mask], format='mjd').datetime, gamma[~fixed_mask], [gamma_neg[~fixed_mask], gamma_pos[~fixed_mask]], fmt='s', color='k', mfc=colours[i])
+            ax[4].errorbar(Time(dates_MJD[fixed_mask], format='mjd').datetime, gamma[fixed_mask], [gamma_neg[fixed_mask], gamma_pos[fixed_mask]], fmt='s', color='k', mfc=colours[i])
+            ax[4].errorbar(Time(dates_MJD[~fixed_mask], format='mjd').datetime, gamma[~fixed_mask], [gamma_neg[~fixed_mask], gamma_pos[~fixed_mask]], fmt='s', color='k', mfc=colours[i])
 
         # Chi^2
         if models_indexes==[]: mask = np.full(length, True) # show all chi^2 results, even when it is above the threshold for the fit and error calculation to be considered successful
         mask_no_cstat = xrt_fit_dict[model]['cstat?'] == False # exclude cstat points
         mask = mask & mask_no_cstat
         chi, dates_MJD = xrt_fit_dict[model]['redchi2'][mask], all_dates_MJD[mask]
-        ax[4].errorbar(Time(dates_MJD, format='mjd').datetime, chi, 0.0, fmt='o', color='k', mfc=colours[i], label=model)
+        ax[5].errorbar(Time(dates_MJD, format='mjd').datetime, chi, 0.0, fmt='o', color='k', mfc=colours[i], label=model)
+
+
+        if models_indexes!=[]: # i.e. getting final results
+            
+            # Store final fits in a separate folder, for evaluation
+            final_resid_dir = "./final_residuals/"
+
+            if not os.path.exists(final_resid_dir):
+                os.makedirs(final_resid_dir)
+                print(f"{final_resid_dir} has been created.")
+
+            plots_dir = "./spectral_fit_residuals"
+            if fixing: plots_dir+="_fixing"
+            plots_dir+="/"
+
+            for i, ID in enumerate(IDs):
+
+                search_pattern = os.path.join(plots_dir, f"*{ID}_{model}_log.png")
+                if i==0: print(search_pattern )
+
+                # Find matching files
+                matching_files = glob.glob(search_pattern)
+
+                if matching_files:
+                    shutil.copy(matching_files[0], final_resid_dir)
+                    print(f"Copied {matching_files[0]} to {final_resid_dir}")
+                else:
+                    print("No matching file found.")
 
 
     if uplims_MJDs: # Add uplims
@@ -629,17 +690,22 @@ def plot_spectral_results(models, models_indexes=[], uplims_IDs=[], uplims_MJDs=
             })], ignore_index=True)
 
 
-
-
     # Set plot constraints
     ax[0].set_yscale('log')
     ax[0].set_ylabel('Flux [1$-$10 keV]\n(erg s$^{-1}$ cm$^{-1}$)')
     ax[1].set_ylabel(r'HR $\left(\frac{[0.5-2\,\text{keV}]}{[2-10\,\text{keV}]}\right)$')
-    ax[2].set_ylabel(r'$k_B T_\text{in}$ (keV)')
-    ax[3].set_ylabel('$\Gamma$')
-    ax[4].set_ylabel(r'$\chi^2_\text{red}$')
-    ax[4].set_yscale('log')
-    ax[4].legend(fontsize=11)
+    ax[2].set_ylabel(r'$n_\text{H}$ ($\times 10^{22}$)')
+    ax[3].set_ylabel(r'$k_B T_\text{in}$ (keV)')
+    ax[4].set_ylabel('$\Gamma$')
+    ax[5].set_ylabel(r'$\chi^2_\text{red}$')
+    ax[5].set_yscale('log')
+    ax[5].legend(fontsize=11)
+
+    for i in range(6):
+        for t in transitions1: # transition points
+            ax[i].axvline(Time(t, format='mjd').datetime, color='yellow', linestyle='--', linewidth=1.5)
+        for t in transitions2: # transition points
+            ax[i].axvline(Time(t, format='mjd').datetime, color='purple', linestyle='--', linewidth=1.5)
 
     T = all_dates_MJD[-1] - all_dates_MJD[0]
     dt = int(T/4)
@@ -652,6 +718,12 @@ def plot_spectral_results(models, models_indexes=[], uplims_IDs=[], uplims_MJDs=
     
 
     else: # final plots, once model index selection has been made
+        filename = "./final_results/"
+
+        if not os.path.exists(filename):
+            os.makedirs(filename)
+            print(f"{filename} has been created.")
+
         plt.savefig(filename+'final_fit_selection.png')
 
         # Tabulate the results
@@ -672,6 +744,8 @@ def plot_all_spectral_fit_results(models, fixing):
 
     for model in models: plot_spectral_results([model], fixing=fixing) # for each model individually
     plot_spectral_results(models, fixing=fixing) # for all the models together
+
+
 
 
 

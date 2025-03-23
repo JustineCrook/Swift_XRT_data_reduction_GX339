@@ -9,6 +9,7 @@ from astropy.time import Time
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import pandas as pd
+import shutil
 
 from xspec import * 
 
@@ -32,20 +33,24 @@ def initialise_model(model, flux_guess, fix_names, fix_values, parameters=None):
     # Or, if we specify a value and then -1, it is fixes to this value.
 
     # Emin and Emax are set to the energy range over which we want the flux to be calculated.
-    Emin = 1.0 
-    Emax = 10.0
+    Emin = 1.0 #<<<<<<<<<<<<<<<<< 
+    Emax = 10.0 #<<<<<<<<<<<<<<<<<
 
     # Defaults for starting parameters and ranges
     # Note: These bounds are very wide; e.g., Gamma 0 to 4, whereas the BH LMXBs are almost always 1-3. 
     # So in our fitting, if any of the values get pegged at the bounds, it either means; (i) the spectrum is insensitive to the pegged model, and thus it might not be necessary; (ii) we are stuck in a local minimum and may require more hands-on spectral fitting.
     if parameters==None:
         parameters = {
-        "nh": '0.2,,0.005,0.005,10,10',  # absorption, range 0.005-10 <<<<<<<<<<<<<<<<<<<<<<<<<
-        "gamma": '1.7,,0.0,0.0,4.0,4.0',  # spectral index, range 0-4 
-        "Tin": '0.5,,0.05,0.05,4.0,4.0',  # temperature, range 0.05-4
+        "nh": '0.6,,0.05,0.05,2.0,2.0',  # absorption
+        "Tin": '0.6,,0.05,0.05,4.0,4.0',  # temperature, range 0.05-4
         "norm1": '1.0',
-        "norm2": '1.0'
+        "norm2": '1.0', 
+        "gamma": '1.7,,0.0,0.0,4.0,4.0' # spectral index, range 0-4 
         }
+        # Set the diskbb+powerlaw initial gamma to be slightly higher, since I use it for intermediate states, and it is quite sensitive to the initialisation
+        if model==  'powerlaw+diskbb' or model== 'pegged_powerlaw+diskbb': 
+            parameters["gamma"] = '2.0,,0.0,0.0,5.0,5.0'
+
     # Set parameters to the values specified in 'fix'
     for name, value in zip(fix_names, fix_values):
         if name in parameters: parameters[name] = f"{value} -1"
@@ -62,6 +67,7 @@ def initialise_model(model, flux_guess, fix_names, fix_values, parameters=None):
     # pgpwrlw (see XSPEC manual pg. 297): Power law with pegged normalisation. A(E) = K E^{-alpha}
     # cflux (see XSPEC manual pp. 359-360): A convolution model to calculate the flux of other model components.
     # diskbb (see XSPEC manual pg. 249): Multiple blackbody accretion disk model.
+    # powerlaw (see XSPEC manual pg. 303)
 
     ## Absorbed power law with pegged normalisation
     # par1: nH; equivalent hydrogen column, in units of 10^{22} atoms/cm^2 
@@ -167,8 +173,11 @@ def plot_resid(spectrum_name, mod_name, fixing):
     plots_dir = "./spectral_fit_residuals"
     if fixing: plots_dir+="_fixing"
     plots_dir+="/"
-    if not os.path.exists(plots_dir):
-        os.makedirs(plots_dir)
+    #if not os.path.exists(plots_dir):
+    #    os.makedirs(plots_dir)
+    if os.path.exists(plots_dir):
+        shutil.rmtree(plots_dir)  
+    os.makedirs(plots_dir) 
 
     Plot('data resid') # data from most recent Fit that was performed
 
@@ -184,7 +193,7 @@ def plot_resid(spectrum_name, mod_name, fixing):
     dataLabels = Plot.labels(1)
     residLabels = Plot.labels(2)
 
-    fig, ax = plt.subplots(2, 1, figsize=(8, 6), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+    fig, ax = plt.subplots(3, 1, figsize=(8, 9), sharex=True, gridspec_kw={'height_ratios': [3, 1, 1]})
 
     ax[0].errorbar(x, rates,xerr=xer, yerr=yer, fmt='ro',ms=1, label="data", elinewidth=0.2)
     ax[0].plot(x, folded, 'b', label="model", linewidth=1, zorder=100)
@@ -195,6 +204,11 @@ def plot_resid(spectrum_name, mod_name, fixing):
     ax[1].set_ylabel(residLabels[1])
     ax[1].set_xlabel(residLabels[0]) #ax[1].set_xlabel('Energy [keV]')
     ax[1].legend(fontsize=11)
+
+    ax[2].plot(x, np.array(resids)/yer, 'g', label=r"(data-model)/$\sigma_{\text{data}}$", linewidth=1)
+    ax[2].set_ylabel(r'')
+    ax[2].set_xlabel(residLabels[0])
+    ax[2].legend()
 
     ax[0].set_title("Spectrum: " + spectrum_name + " & model: " + mod_name)
 
@@ -207,7 +221,8 @@ def plot_resid(spectrum_name, mod_name, fixing):
     plt.savefig(plots_dir+ spectrum_name+"_"+mod_name+"_log")
 
     # Clear the plot
-    plt.clf()
+    #plt.clf()
+    plt.close()
 
 
 
@@ -228,8 +243,11 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
     folder = './spectral_fit_results'
     if fixing: folder+='_fixing'
     folder+='/'
-    if not os.path.exists(folder):
-        os.makedirs(folder)
+    #if not os.path.exists(folder):
+    #    os.makedirs(folder)
+    if os.path.exists(folder):
+        shutil.rmtree(folder)  
+    os.makedirs(folder)  
 
     # Initialise XSPEC
     # Xset: storage class for XSPEC settings
@@ -287,7 +305,7 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
     # Also get other parameters of interest
     IDs = np.array([sf[14:-8] for sf in spectral_files])
     mode = np.array([file[-10:-8] for file in spectral_files]) # PC or WT
-    cstat = np.array([True if tot_count==1 else False for tot_count in tot_counts])
+    cstat = np.array([True if bin_count==1 else False for bin_count in bin_counts])
 
     # Filtering -- ignore spectra with very low counts
     # We do not want to fit the observations identified as uplims from the lightcurve generation (as we deal with these separately)
@@ -330,9 +348,12 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
 
         print('\n\n', spectrum_file)
 
+
+
         # Process the 'fix' input dictionary
         fix_names = [] # names of parameters to fix for this spectrum
         fix_values = [] # values to fix these parameters to for this spectrum
+        """
         for param, details in fix.items():
             indices = details["indices"]
             value = details["value"]
@@ -340,20 +361,48 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
             if indices == "all" or k in indices or k in np.array(indices)+n_spectra: # the last check is in case some of the values were negative (i.e. counted from the end of the array)
                 fix_names.append(param)
                 fix_values.append(value)
+        """
+        for param, details in fix.items():
+            if param == "gamma":  # Special case for gamma since it's a list
+                for gamma_entry in details:
+                    indices = gamma_entry["indices"]
+                    value = gamma_entry["value"]
+                    if indices == "all" or k in indices or k in np.array(indices) + n_spectra:
+                        fix_names.append(param)
+                        fix_values.append(value)
+            else:  # Normal parameters
+                indices = details["indices"]
+                value = details["value"]
+                if indices == "all" or k in indices or k in np.array(indices) + n_spectra:
+                    fix_names.append(param)
+                    fix_values.append(value)
+        print("Fixed parameters: ", fix_names)
+        print("Fixed parameter values: ", fix_values)
 
-        
+
         # Load the spectrum into the AllData object, removing any previously loaded data sets... We also run AllData.clear() before, just to be sure.
         # If the rmf and arf files are located in the same folder (which they are), these will automatically be loaded.
         AllData.clear()
         AllData(spectrum_file)
         # AllData.show() # check current state of the AllData container
 
-        # Define range of energy to use -- i.e. ignore certain channels. This is done for all the loaded spectra.
-        # The floating point values are assumed to be in keV, as this is what was set for the Plot.xAxis value above.
-        AllData.ignore('*:10.0-**')
-        AllData.ignore(f'*:**-{low_energy_fit_bound_keV}')
-        AllData.notice(f'*:{low_energy_fit_bound_keV}-10.0') # so that edge points are used
-        AllData.ignore('bad') # ignore data that is bad -- using the quality column
+
+        # These SS spectra are strange (aren't fit very well), so as a workaround I use a smaller fit range
+        if IDs[k]== "00032490024wt" or IDs[k]=="00032490025wt":
+            print("Fitting smaller range.")
+            AllData.ignore('*:10.0-**')
+            AllData.ignore(f'*:**-0.8')
+            AllData.notice(f'*:0.8-10.0') # so that edge points are used
+            AllData.ignore('bad') # ignore data that is bad -- using the quality column
+
+        else:
+            # Define range of energy to use -- i.e. ignore certain channels. This is done for all the loaded spectra.
+            # The floating point values are assumed to be in keV, as this is what was set for the Plot.xAxis value above.
+            AllData.ignore('*:10.0-**')
+            AllData.ignore(f'*:**-{low_energy_fit_bound_keV}')
+            AllData.notice(f'*:{low_energy_fit_bound_keV}-10.0') # so that edge points are used
+            AllData.ignore('bad') # ignore data that is bad -- using the quality column
+
 
         # If too much data is ignored, the spectrum won't fit 
         # Also print out a warning 
@@ -376,7 +425,7 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
         # 1: nH (10^{22} atoms/cm^2); 2: photon index; 3: lower peg energy range (keV); 4: upper peg energy range (keV); 5: norm i.e. flux (10^{-12} ergs/cm^2/s)
         AllModels.clear()
         mod1 = Model('tbabs * pegpwrlw')
-        mod1.setPars({1:'0.2 -1', 2:'2.0 -1', 3:1.0, 4:10.0, 5:'1000.0'})
+        mod1.setPars({1:'0.6 -1', 2:'1.7 -1', 3:1.0, 4:10.0, 5:'1000.0'}) # was 0.2 and 2.0 before
         Fit.delta = 1e-2 # controls the convergence criterion for the fitting algorithm
         try: 
             Fit.perform()
@@ -392,8 +441,19 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
 
             AllModels.clear() # AllModels represents the collection of all currently defined models in the XSPEC session
 
+            parameters = None
+            # Workarounds for 2-component spectra that require careful model initialisation
+            if IDs[k]== "00014052050wt":
+                parameters = {
+                "nh": '0.5,,0.05,0.05,2.0,2.0',  # absorption
+                "Tin": '0.6,,0.05,0.05,4.0,4.0',  # temperature, range 0.05-4
+                "norm1": '1.0',
+                "norm2": '1.0', 
+                "gamma": '2.0,,0.0,0.0,4.0,4.0' # spectral index, range 0-4 
+                }
+
             # Initialise the model and systematics 
-            mod, initial_pars = initialise_model(mod_name, flux_guess, fix_names, fix_values)
+            mod, initial_pars = initialise_model(mod_name, flux_guess, fix_names, fix_values, parameters)
             mod_obj = Model(mod)
             mod_obj.setPars(initial_pars) # set the parameters to the initial parameters specified in the initialisation
             if add_systematic: AllModels.systematic = 0.03 # add systematic error
@@ -508,7 +568,9 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
                     xrt_dict[mod_name].setdefault('lg10Flux' + '_pos', []).append(-1)
 
             if fit: # Plot residuals from the last fit 
-                plot_resid(spectrum_file[10:-8], mod_name, fixing)
+                date = f"{obs_mjds[k]:.2f}"
+                spectrum_name = date+"_"+spectrum_file[10:-8] # spectrum name includes date
+                plot_resid(spectrum_name, mod_name,fixing)
             
             print()
         print("------------------------------------------------------------")
