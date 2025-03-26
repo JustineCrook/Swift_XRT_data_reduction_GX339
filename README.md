@@ -70,3 +70,15 @@ The steps for this are as follows:
 
 # STEP 8:
 - Plot and tabulate the final results, using `get_final_results`.  
+
+
+
+# TODO: 
+- Clean up and check all code
+- Scrape of observation IDs from the internet
+- Scrape target coordinates off the internet
+- Staggered data retrieval, to avoid overload
+- Finalise uplims routine
+- Get IDs for the upper limits automatically, using website?
+- Make it such that the fit_spec function fetches the upper limit IDs, and so does not require this user input.
+- Minimise the need for user input by calling from other functions to fetch data e.g. uplims

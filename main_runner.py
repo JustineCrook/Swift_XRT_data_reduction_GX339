@@ -14,28 +14,8 @@ from calculate_uplims import uplims_runner
 import numpy as np
 from input_parameters import analysis_type,target_coords,target_names,target_ids,segments_lc,segments_spec,MJD_range,models_unconstrained,models_constrained,nH,gamma,low_count_indexes,fix,uplims_IDs,uplims_count_rate_ar,uplims_MJDs,uplims_MJDs_er,uplims_fluxes,models_indexes,min_E_keV,min_counts_chi, simple_model, complex_model, models_indexes_av
 
-"""
-Order in which to run:
-(1) get_data
-(2) plot_lc. This will output the upper limit count rate and MJDs (if any) that will need to be dealt with separately.
-(3) fit_spec. If you have an nH value, you can set this to be fixed.
-(4) Look at the spectral_fit_results and spectral_fit_residuals folders.
-(5) If the fit is failing in some epochs because of too low counts, you may need to determine parameters to fix.
-(6) You can run get_parameter_results with 
-(7) If some of the fit parameters (e.g. nH) need to be changed, re-run fit_spec with the value of nH. 
-(8) If upper limits were identified from the plot_lc routine, run get_uplim_fluxes (with the output nH from the previous step, if needs be).
-(9) If needs be, run get_index_range, to get the range of indexes corresponding to a particular MJD range.
-(10) Run get_spec_results (with the output of get_uplim_fluxes).
-"""
 
-# TODO: 
-# scrape of observation IDs from the internet
-# scrape target coordinates off the internet
-# recommended way to make requests, to avoid overload
-# Possibly use a yaml file for inputs?
-# Get IDs for the upper limits automatically, using website?
-# Make it such that the fit_spec function fetches the upper limit IDs, and so does not require this user input.
-# Minimise the need for user input by calling from other functions to fetch data e.g. uplims
+
 if __name__ in "__main__":
 
     print("Analysis type: ",  analysis_type)
