@@ -56,7 +56,8 @@ mpl.rcParams['axes.linewidth'] = 1.5
 
 
 transitions1 = [58800,58950,59301,59485]
-transitions2 = [58800, 58920, 58958, 59295, 59310, 59480, 59492]
+#transitions2 = [58800, 58920, 58958, 59295, 59310, 59480, 59492]
+transitions2 = [58800, 58920, 58950, 59295, 59310, 59480, 59492]
 
 
 ####################################################################################################################
@@ -381,7 +382,7 @@ def plot_parameter(t, param_values, er_neg, er_pos, param_name, avg, weighted_av
     for t in transitions1: # transition points
         plt.axvline(t, color='yellow', linestyle='--', linewidth=1.5)
     for t in transitions2: # transition points
-        plt.axvline(Time(t, format='mjd').datetime, color='purple', linestyle='--', linewidth=1.5)
+        plt.axvline(t, color='purple', linestyle='--', linewidth=1.5)
     if weighted_avg!=None: plt.axhline(weighted_avg, color='green', linestyle='--', linewidth=1.5, label=f'Weighted mean = {weighted_avg:.4f}')
     plt.legend()
     plt.savefig(f"{filename}{param_name}_time_series_{mod_name}.png")
@@ -585,9 +586,10 @@ def plot_spectral_results(models, models_indexes=[], uplims_IDs=[], uplims_MJDs=
 
         dates_MJD = all_dates_MJD[mask] # middle MJD
         exposures = all_dt_MJD[mask]
-        IDs = data['IDs'][mask]
-
+        
         data = xrt_fit_dict[model]
+
+        IDs = data['IDs'][mask]
         
         # Flux
         # For the log values, we need to propagate uncertainties: if y = log_10(x), then x_unc = x * ln(10) * y_unc = 10**y * ln(10) * y_unc
@@ -644,7 +646,7 @@ def plot_spectral_results(models, models_indexes=[], uplims_IDs=[], uplims_MJDs=
 
 
         if models_indexes!=[]: # i.e. getting final results
-            
+
             # Store final fits in a separate folder, for evaluation
             final_resid_dir = "./final_residuals/"
 

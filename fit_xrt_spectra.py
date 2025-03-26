@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import pandas as pd
 import shutil
+import math
 
 from xspec import * 
 
@@ -173,11 +174,6 @@ def plot_resid(spectrum_name, mod_name, fixing):
     plots_dir = "./spectral_fit_residuals"
     if fixing: plots_dir+="_fixing"
     plots_dir+="/"
-    #if not os.path.exists(plots_dir):
-    #    os.makedirs(plots_dir)
-    if os.path.exists(plots_dir):
-        shutil.rmtree(plots_dir)  
-    os.makedirs(plots_dir) 
 
     Plot('data resid') # data from most recent Fit that was performed
 
@@ -193,7 +189,7 @@ def plot_resid(spectrum_name, mod_name, fixing):
     dataLabels = Plot.labels(1)
     residLabels = Plot.labels(2)
 
-    fig, ax = plt.subplots(3, 1, figsize=(8, 9), sharex=True, gridspec_kw={'height_ratios': [3, 1, 1]})
+    fig, ax = plt.subplots(3, 1, figsize=(12, 9), sharex=True, gridspec_kw={'height_ratios': [3, 1, 1]})
 
     ax[0].errorbar(x, rates,xerr=xer, yerr=yer, fmt='ro',ms=1, label="data", elinewidth=0.2)
     ax[0].plot(x, folded, 'b', label="model", linewidth=1, zorder=100)
@@ -231,7 +227,7 @@ def plot_resid(spectrum_name, mod_name, fixing):
 # Note: We don't fit the entire energy range of data because the response of the instrument is worse at the edges of the band.
 ##TODO: Checking the fix parameters
 ##TODO: Fill all with -1 by default (of correct length), to clean up the code
-def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit_bound_keV = 0.5, count_threshold = 50, fix={}, add_systematic = False):
+def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit_bound_keV = 0.5, count_threshold = 50, fix={}, add_systematic = True):
 
     if any(model not in ['powerlaw', 'pegged_powerlaw', 'diskbb', 'powerlaw+diskbb', 'pegged_powerlaw+diskbb'] for model in models):
         raise ValueError(f"Error: Invalid model(s) found in array. Allowed values are: {['powerlaw', 'pegged_powerlaw', 'diskbb', 'powerlaw+diskbb', 'pegged_powerlaw+diskbb']}")
@@ -248,6 +244,18 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
     if os.path.exists(folder):
         shutil.rmtree(folder)  
     os.makedirs(folder)  
+
+
+    # Folder for residuals
+    plots_dir = "./spectral_fit_residuals"
+    if fixing: plots_dir+="_fixing"
+    plots_dir+="/"
+    #if not os.path.exists(plots_dir):
+    #    os.makedirs(plots_dir)
+    if os.path.exists(plots_dir):
+        shutil.rmtree(plots_dir)  
+    os.makedirs(plots_dir) 
+
 
     # Initialise XSPEC
     # Xset: storage class for XSPEC settings
@@ -325,7 +333,7 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
     # Get the parameters for the observations that we will fit
     spectral_files = spectral_files[mask]
     obs_isots = obs_isots[mask]
-    obs_mjds = obs_mjds[mask]
+    obs_mjds = obs_mjds[mask].tolist()
     end_obs_isots = end_obs_isots[mask]
     end_obs_mjds = end_obs_mjds[mask]
     bin_counts = bin_counts[mask]
@@ -337,7 +345,7 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
 
 
     # Initialise dictionary to hold results
-    xrt_dict = {model: {"IDs": IDs.tolist(), "isot_i": obs_isots.tolist(), "mjd_i": obs_mjds.tolist(), "mjd_f": end_obs_mjds.tolist(), "exp [s]": exp.tolist(), "counts": tot_counts.tolist(), "cstat?":cstat.tolist(), "chi2": [], "dof": [], "redchi2": []} for model in models}
+    xrt_dict = {model: {"IDs": IDs.tolist(), "isot_i": obs_isots.tolist(), "mjd_i": obs_mjds, "mjd_f": end_obs_mjds.tolist(), "exp [s]": exp.tolist(), "counts": tot_counts.tolist(), "cstat?":cstat.tolist(), "chi2": [], "dof": [], "redchi2": []} for model in models}
 
     ## Iterate through each spectrum (i.e. each observation), fit it, get the fit parameters, and then save these.
     # AllData: container for all loaded data sets (objects of class Spectrum).
@@ -347,7 +355,6 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
     for k, spectrum_file in enumerate(spectral_files):
 
         print('\n\n', spectrum_file)
-
 
 
         # Process the 'fix' input dictionary
@@ -388,6 +395,7 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
 
 
         # These SS spectra are strange (aren't fit very well), so as a workaround I use a smaller fit range
+        # IDs 90 and 91
         if IDs[k]== "00032490024wt" or IDs[k]=="00032490025wt":
             print("Fitting smaller range.")
             AllData.ignore('*:10.0-**')
@@ -441,8 +449,11 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
 
             AllModels.clear() # AllModels represents the collection of all currently defined models in the XSPEC session
 
+            
             parameters = None
+            """
             # Workarounds for 2-component spectra that require careful model initialisation
+            # ID 187
             if IDs[k]== "00014052050wt":
                 parameters = {
                 "nh": '0.5,,0.05,0.05,2.0,2.0',  # absorption
@@ -450,13 +461,14 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
                 "norm1": '1.0',
                 "norm2": '1.0', 
                 "gamma": '2.0,,0.0,0.0,4.0,4.0' # spectral index, range 0-4 
-                }
+                }"
+            """
 
             # Initialise the model and systematics 
             mod, initial_pars = initialise_model(mod_name, flux_guess, fix_names, fix_values, parameters)
+            if add_systematic: AllModels.systematic = 0.02 # add systematic error -- needs to be before the model is created
             mod_obj = Model(mod)
             mod_obj.setPars(initial_pars) # set the parameters to the initial parameters specified in the initialisation
-            if add_systematic: AllModels.systematic = 0.03 # add systematic error
             AllModels.show() # for checking
 
             # Do not fit if tot_counts is less than count_threshold plus the fit parameters haven't been fixed
@@ -498,9 +510,9 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
                         }
                         AllModels.clear()
                         mod, initial_pars = initialise_model("cflux_(powerlaw+diskbb)", flux_guess, fix_names, fix_values, parameters)
+                        if add_systematic: AllModels.systematic = 0.02 # add systematic error
                         mod_obj = Model(mod)
                         mod_obj.setPars(initial_pars) # set the parameters to the initial parameters specified in the initialisation
-                        if add_systematic: AllModels.systematic = 0.03 # add systematic error
                         mod_2 = True 
                         #AllModels.show() # for checking
                         Fit.delta = 1e-5
@@ -568,8 +580,9 @@ def run_spectral_fit(models= ['pegged_powerlaw'], uplim_files=[], low_energy_fit
                     xrt_dict[mod_name].setdefault('lg10Flux' + '_pos', []).append(-1)
 
             if fit: # Plot residuals from the last fit 
-                date = f"{obs_mjds[k]:.2f}"
-                spectrum_name = date+"_"+spectrum_file[10:-8] # spectrum name includes date
+                date = f"{math.floor(obs_mjds[k])}"
+                spectrum_name = "MJD"+date+"_"+spectrum_file[10:-8] # spectrum name includes date
+                print(spectrum_name)
                 plot_resid(spectrum_name, mod_name,fixing)
             
             print()

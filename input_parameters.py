@@ -8,7 +8,7 @@ Schedule: https://www.swift.psu.edu/operations/obsSchedule.php?source_name=Gx+33
 ######################################################################################################################
 
 ## FUNCTION TO RUN
-analysis_type = "plot_lc_and_hr"
+analysis_type = "get_final_results"
  
 
 ######################################################################################################################
@@ -209,28 +209,20 @@ models_unconstrained = ['pegged_powerlaw', 'powerlaw+diskbb','diskbb']
 
 
 
-## STEP 3 RESULTS --- FROM MODEL FITTING RESULTS
-# The spectral_results.txt file lists the low_count_indexes, which correspond to observations that cannot initial be fit (due to low count rate), so require some fitting parameters to be fixed.
-
-# All the low count spectra are in the HS!!!!!!!!!!!!!!!!!!!!!
-low_count_indexes = [  0,  1,  2,  3,  4,  5,  6,  7, 67, 121,122,123,124,201,202,203,204,205,206,207,208,209,210,211, 212,239,240,241,242,243,244,245,246,247,248,249,250,251,253,254,256,257,258,259,260,261,262,263, 264,265,266,267,268,269,271,272,274,283,284,287]
-low_count_indexes_1 = [  0,  1,  2,  3,  4,  5,  6,  7,121,122,123,124,201,202,203,204,205,206,207,208,209,210,211, 212]
-# For this second set of low-count spectra, we can see from the trend in photon index for the powerlaw that the photon index is a bit higher
-low_count_indexes_2 = [67, 239,240,241,242,243,244,245,246,247,248,249,250,251,253,254,256,257,258,259,260,261,262,263, 264,265,266,267,268,269,271,272,274,283,284,287]
-
-
 ######################################################################################################################
 
 ## GET PARAMETER VALUES (N_H, GAMMA, T_IN) -- get_param_averages
 
-# Based on the spectral fit results (step 3) and any prior knowledge regarding spectral state ranges, define which spectral model to use for each point in time.
+# Based on the spectral fit results and any prior knowledge regarding spectral state ranges, define which spectral model to use for each point in time.
 # model_indexes is a multi-dimensional array. Each outer element corresponds to the models defined above. The inner elements are ranges for each model.
 # The index ranges are inclusive (i.e. [start, end]), and correspond to those listed in the spectral_results.txt file.
 # e.g. models_indexes=[ [[6, 17], [19, 21]] , [[0, 5]] , [[]] ] means the first model should be used for the observations corresponding to indexes 6-17 and 19-21, the second model should be used for observations 0-5, and the last model that was fit should not be used
 # If none, use models_indexes = []
 
+
 #models_indexes_av =[ [[0,81], [95,140], [187,292]], [0,292], [[82,94], [141, 186] ] ]
-models_indexes_av =[ [[0,81], [97,138], [188,292]], [ [90,96], [139,143], [186,187]], [[82,89], [144, 185] ] ]
+#models_indexes_av =[ [[0,81], [97,138], [188,292]], [ [90,96], [139,143], [186,187]], [[82,89], [144, 185] ] ]
+models_indexes_av =[ [[0,81], [95,138], [188,292]], [ [90,94], [139,143], [186,187]], [[82,89], [144, 185] ] ]
 
 
 
@@ -240,20 +232,38 @@ models_indexes_av =[ [[0,81], [97,138], [188,292]], [ [90,96], [139,143], [186,1
 # Re-run spectral fitting, but this time we want to fit the parameters for some observations -- using the results of step 4 and/or any prior knowledge (e.g. nH values in papers).
 # Uses uplims_IDs, models, low_energy_fit_bound_keV, and low_count_indexes -- defined above
 
+
+models_constrained = ['pegged_powerlaw', 'powerlaw+diskbb','diskbb'] 
+
+
+## FROM MODEL FITTING RESULTS
+# The spectral_results.txt file lists the low_count_indexes, which correspond to observations that cannot initial be fit (due to low count rate), so require some fitting parameters to be fixed.
+# All the low count spectra are in the HS!!!!!!!!!!!!!!!!!!!!!
+low_count_indexes = [  0,  1,  2,  3,  4,  5,  6,  7, 67, 121,122,123,124,201,202,203,204,205,206,207,208,209,210,211, 212,239,240,241,242,243,244,245,246,247,248,249,250,251,253,254,256,257,258,259,260,261,262,263, 264,265,266,267,268,269,271,272,274,283,284,287]
+# Divide the set in two, since they have different behaviour. 
+# Set 1:
+low_count_indexes_1 = [  0,  1,  2,  3,  4,  5,  6,  7,121,122,123,124,201,202,203,204,205,206,207,208,209,210,211, 212]
+# Set 2: For this second set of low-count spectra, we can see from the trend in photon index for the powerlaw that the photon index is a bit higher
+low_count_indexes_2 = [67, 239,240,241,242,243,244,245,246,247,248,249,250,251,253,254,256,257,258,259,260,261,262,263, 264,265,266,267,268,269,271,272,274,283,284,287]
+
+
+
 # Define parameters to fix in the fitting
 # The indices below correspond to those listed in the spectral_results.txt file
 # If we want to fix parameters: fix = {"nh": {"indices": "all", "value": 0.1989}, "gamma": {"indices": [-4, -3, -2, -1], "value": 1.7}, "Tin": {"indices": [-4, -3, -2, -1], "value": 0.5} }
 # We will want to fix parameters for low_count_indexes, defined above, e.g. fix = {"nh": {"indices": "all", "value": 0.2}, "gamma": {"indices": low_count_indexes, "value": 1.62}, "Tin": {"indices": low_count_indexes, "value": 0.5}}
 # NOTE: For nH, I don't do "all" as it is giving issues for some of the SS epochs
-## TODO: At a later stage, I may want to fix nH.... especially for the HS epochs with low counts
+## TODO: I may want to fix nH.... especially for the HS epochs with low counts??
+
 nH = 0.6
 gamma1 = 1.55
 gamma2 = 1.7
 Tin = 0.5
+
 #fix = {"nh": {"indices": low_count_indexes, "value": nH}, "gamma": {"indices": low_count_indexes_1, "value": gamma1}, "gamma": {"indices": low_count_indexes_2, "value": gamma2}, "Tin": {"indices": low_count_indexes, "value": Tin}}
 fix = {
     "nh": {"indices": low_count_indexes, "value": nH},
-    "gamma": [  # Store multiple sets of gamma values
+    "gamma": [  
         {"indices": low_count_indexes_1, "value": gamma1},
         {"indices": low_count_indexes_2, "value": gamma2}
     ],
@@ -262,7 +272,7 @@ fix = {
 
 
 
-models_constrained = ['pegged_powerlaw', 'powerlaw+diskbb','diskbb'] 
+
 
 
 ######################################################################################################################
@@ -293,7 +303,8 @@ uplims_fluxes = [np.nan] * len(uplims_IDs)
 ## INPUTS --- FINAL RESULTS -- get_final_results
 
 #models_indexes =[ [[0,81], [95,140], [187,292]], [], [], [[82,94], [141, 186] ] ]
-models_indexes =[ [[0,81], [97,138], [188,292]], [ [90,96], [139,143], [186,187]], [[82,89], [144, 185] ] ]
+#models_indexes =[ [[0,81], [97,138], [188,292]], [ [90,96], [139,143], [186,187]], [[82,89], [144, 185] ] ]
+models_indexes =[ [[0,81], [95,138], [188,292]], [ [90,94], [139,143], [186,187]], [[82,89], [144, 185] ] ]
 
 
 ######################################################################################################################

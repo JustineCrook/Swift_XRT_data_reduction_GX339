@@ -70,5 +70,7 @@ LILIA_COMPARISON/
 OLD_RESULTS/
 simultaneous_spectra_test/
 TESTING_GROUPING/
-TESTING_notebooks/
 testing_pileup_manual/
+final_results/
+final_residuals/
+TESTING_notebooks/
