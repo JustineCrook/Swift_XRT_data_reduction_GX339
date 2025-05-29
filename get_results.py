@@ -593,9 +593,30 @@ def plot_spectral_results(models, models_indexes=[], uplims_IDs=[], uplims_MJDs=
         
         # Flux
         # For the log values, we need to propagate uncertainties: if y = log_10(x), then x_unc = x * ln(10) * y_unc = 10**y * ln(10) * y_unc
+        # HOWEVER, if the SNR is low, we cannot use the simple propagation of uncertainties for the log. 
+        # In that case, rather use x_unc_l = 10**y - 10**(y-y_unc_l)
+        # x_unc_u = 10**(y+y_unc_u) - 10**y 
         if model=='pegged_powerlaw': flux, flux_neg, flux_pos = 1e-12*data['norm'][mask], 1e-12*data['norm_neg'][mask], 1e-12*data['norm_pos'][mask]
-        elif model=='powerlaw' or model=='diskbb' or model=='powerlaw+diskbb': flux, flux_neg, flux_pos = 10**data['lg10Flux'][mask], 10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask], 10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask]
-        elif model == "pegged_powerlaw+diskbb": flux, flux_neg, flux_pos = 1e-12*data['norm'][mask] + 10**data['lg10Flux'][mask], np.sqrt ( (1e-12*data['norm_neg'][mask])**2 + (10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask])**2 ) , np.sqrt( (1e-12*data['norm_pos'][mask])**2 + (10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask])**2 )
+        
+        
+        elif model=='powerlaw' or model=='diskbb' or model=='powerlaw+diskbb': 
+            #flux, flux_neg, flux_pos = 10**data['lg10Flux'][mask], 10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask], 10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask]
+            flux = 10**data['lg10Flux'][mask]
+            flux_neg = 10**data['lg10Flux'][mask] - 10**(data['lg10Flux'][mask] - data['lg10Flux_neg'][mask])
+            flux_pos =  10**(data['lg10Flux'][mask] + data['lg10Flux_pos'][mask]) - 10**data['lg10Flux'][mask] 
+        
+        
+        elif model == "pegged_powerlaw+diskbb": 
+            #flux, flux_neg, flux_pos = 1e-12*data['norm'][mask] + 10**data['lg10Flux'][mask], np.sqrt ( (1e-12*data['norm_neg'][mask])**2 + (10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask])**2 ) , np.sqrt( (1e-12*data['norm_pos'][mask])**2 + (10**data['lg10Flux'][mask]*np.log(10)*data['lg10Flux_neg'][mask])**2 )
+            flux = 1e-12*data['norm'][mask] + 10**data['lg10Flux'][mask]
+            flux_neg_norm_part = 1e-12*data['norm_neg'][mask]
+            flux_neg_log_part = 10**data['lg10Flux'][mask] - 10**(data['lg10Flux'][mask] - data['lg10Flux_neg'][mask])
+            flux_neg = np.sqrt(flux_neg_norm_part**2 + flux_neg_log_part**2)
+            flux_pos_norm_part =  1e-12*data['norm_pos'][mask]
+            flux_pos_log_part = 10**(data['lg10Flux'][mask] + data['lg10Flux_pos'][mask]) - 10**data['lg10Flux'][mask]
+            flux_pos = np.sqrt(flux_pos_norm_part**2 + flux_pos_log_part**2)
+        
+        
         ax[0].errorbar(Time(dates_MJD, format='mjd').datetime, flux, [flux_neg, flux_pos], fmt='o',color='k', mfc=colours[i])
 
         #print(len(data['IDs'][mask]))
